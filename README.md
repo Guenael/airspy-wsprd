@@ -1,6 +1,6 @@
- #airspy-wsprd -- WSPR Daemon for AirSpy receivers
+# airspy-wsprd -- WSPR Daemon for AirSpy receivers
 
- This non-interactive application allow to report WSPR spots on WSPRnet. The idea is to allows the use on this daemon on small computer like RasberryPi or Beaglebone boards. This kind of very lightweight setup could run continuously without maintenance and help to increase the WSPR network. The code is massively based on Steven Franke (K9AN) implementation and Joe Taylor (K1JT) work.
+This non-interactive application allow to report WSPR spots on WSPRnet. The idea is to allows the use on this daemon on small computer like RasberryPi or Beaglebone boards. This kind of very lightweight setup could run continuously without maintenance and help to increase the WSPR network. The code is massively based on Steven Franke (K9AN) implementation and Joe Taylor (K1JT) work.
  
 <h3>Basically, this application :</h3>
 - Perform a time alignment (2 mins)
