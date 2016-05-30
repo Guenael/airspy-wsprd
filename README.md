@@ -22,7 +22,7 @@ This non-interactive application allows automatic reporting of WSPR spots on WSP
    make
 5. Enjoy it with ./airspy_wsprd <your options>
 
-<h3>Tips (for RasberrpyPi):</h3>
+<h3>Tips (for Raspberry Pi):</h3>
 - Use ferrite bead to limit the interferences
 - Cut off the display (could help to reduce QRN) : /opt/vc/bin/tvservice -o 
 - Remove unused modules (ex: /etc/modules: #snd-bcm2835)
