@@ -51,7 +51,7 @@
 
 #define FLOAT32_EL_SIZE_BYTE	4        // 4bytes = 32bit float
 #define SAMPLING_FREQUENCY      2500000
-#define DOWNSAMPLE				6667
+#define DOWNSAMPLE				6667     //6667
 #define CAPTURE_LENGHT          116
 
 
@@ -122,9 +122,9 @@ int rx_callback(airspy_transfer_t* transfer) {
     */
     uint32_t i=0;
     while (i < samples_to_write) {
-        I += (double)sigIn[i];
-        Q += (double)sigIn[i+1];
-        i += 2;
+        I += (double)sigIn[i*2];
+        Q += (double)sigIn[i*2+1];
+        i++;
         decim_index++;
         if (decim_index < DOWNSAMPLE) {
             continue;
@@ -134,7 +134,7 @@ int rx_callback(airspy_transfer_t* transfer) {
         decim_index = 0;
         I = 0.0;
         Q = 0.0;
-        iq_index += 2;
+        iq_index++;
     }
     return 0;
 }
