@@ -72,20 +72,14 @@ volatile bool stop_rx = false;
 // Variables used for decimation (CIC algo)
 uint32_t samples_to_xfer = SAMPLING_FREQUENCY * CAPTURE_LENGHT;  // 120 seconds at 2.5Msps
 static uint32_t decim_index=0;
-static double I=0.0, Q=0.0;
 static uint32_t iq_index=0;
+static int32_t I=0, Q=0;
 
 
 int rx_callback(airspy_transfer_t* transfer) {
-    float *sigIn = (float*) transfer->samples;
+    int16_t *sigIn = (int16_t*) transfer->samples;
 
-    uint32_t samples_to_write = transfer->sample_count;
-    if (samples_to_write >= samples_to_xfer) {
-        samples_to_write = samples_to_xfer;
-    }
-    samples_to_xfer -= samples_to_write;
-
-    /* Economic mixer @ fs/4 (upper band)
+     /* Economic mixer @ fs/4 (upper band)
        At fs/4, sin and cosin calculation are no longueur necessary.
      
                0   | pi/2 |  pi  | 3pi/2
@@ -96,9 +90,9 @@ int rx_callback(airspy_transfer_t* transfer) {
        out_I = in_I * cos(x) - in_Q * sin(x)
        out_Q = in_Q * cos(x) + in_I * sin(x)
        (Weaver technique, keep the lower band) 
-
-    float tmp;
-    for (uint32_t i=0; i<samples_to_write; i+=8) {
+    */
+    int16_t tmp;
+    for (uint32_t i=0; i<(transfer->sample_count); i+=8) {
         tmp = sigIn[i+3];
         sigIn[i+3] = - sigIn[i+2];
         sigIn[i+2] = tmp;
@@ -110,7 +104,6 @@ int rx_callback(airspy_transfer_t* transfer) {
         sigIn[i+6] = -sigIn[i+7];
         sigIn[i+7] = tmp;
     }
-    */
 
     /* -- Simple square window decimator -- FIXME
     TODO    : Use/implement a clean fractional decimator (CIC+FIR)
@@ -120,20 +113,27 @@ int rx_callback(airspy_transfer_t* transfer) {
       Ideal = (256/375)*162 = 110.592 seconds
       This  = (256÷374.925014997)×162 = 110.6141184 seconds
     */
+
+    uint32_t samples_to_write = transfer->sample_count / 2;
+    if (samples_to_write >= samples_to_xfer) {
+        samples_to_write = samples_to_xfer;
+    }
+    samples_to_xfer -= samples_to_write;
+
     uint32_t i=0;
     while (i < samples_to_write) {
-        I += (double)sigIn[i*2];
-        Q += (double)sigIn[i*2+1];
+        I += (int32_t)sigIn[i*2];
+        Q += (int32_t)sigIn[i*2+1];
         i++;
         decim_index++;
         if (decim_index < DOWNSAMPLE) {
             continue;
         }
-        idat[iq_index] = I;
-        qdat[iq_index] = Q;
+        idat[iq_index] = (float)I / 1000000.0;
+        qdat[iq_index] = (float)Q / 1000000.0;
+        I = 0;
+        Q = 0;
         decim_index = 0;
-        I = 0.0;
-        Q = 0.0;
         iq_index++;
     }
     return 0;
@@ -259,7 +259,7 @@ int main(int argc, char** argv) {
 		return EXIT_FAILURE;
 	}
 
-	result = airspy_set_sample_type(device, AIRSPY_SAMPLE_FLOAT32_IQ);
+	result = airspy_set_sample_type(device, AIRSPY_SAMPLE_INT16_REAL);
 	if (result != AIRSPY_SUCCESS) {
 		printf("airspy_set_sample_type() failed: %s (%d)\n", airspy_error_name(result), result);
 		airspy_close(device);
@@ -298,8 +298,7 @@ int main(int argc, char** argv) {
 		printf("airspy_set_lna_gain() failed: %s (%d)\n", airspy_error_name(result), result);
 	}
 	
-	result = airspy_set_freq(device, options.freq + 1500);  // Dial + 1500Hz
-    //result = airspy_set_freq(device, 144490500 - 625000);
+	result = airspy_set_freq(device, options.freq + 625000 + 1500);  // Dial + 1500Hz
 	if( result != AIRSPY_SUCCESS ) {
 		printf("airspy_set_freq() failed: %s (%d)\n", airspy_error_name(result), result);
 		airspy_close(device);
@@ -370,21 +369,18 @@ int main(int argc, char** argv) {
 
         // Rearm for a new RX
         decim_index=0;
-        I=0.0;
-        Q=0.0;
+        I=0;
+        Q=0;
         iq_index=0;
         samples_to_xfer = SAMPLING_FREQUENCY * CAPTURE_LENGHT;
         stop_rx = false;
     }
 
-	if(device != NULL)
-	{
+	if(device != NULL) {
 		result = airspy_close(device);
-		if( result != AIRSPY_SUCCESS ) 
-		{
+		if( result != AIRSPY_SUCCESS ) {
 			printf("airspy_close() failed: %s (%d)\n", airspy_error_name(result), result);
 		}
-		
 		airspy_exit();
 	}
 
