@@ -34,7 +34,7 @@ char get_callsign_character_code(char ch) {
 
 long unsigned int pack_grid4_power(char *grid4, int power) {
     long unsigned int m;
-    
+
     m=(179-10*grid4[0]-grid4[2])*180+10*grid4[1]+grid4[3];
     m=m*128+power+64;
     return m;
@@ -85,8 +85,8 @@ void pack_prefix(char *callsign, int32_t *n, int32_t *m, int32_t *nadd ) {
     call6=malloc(sizeof(char)*6);
     memset(call6,32,sizeof(char)*6);
     int i1=strcspn(callsign,"/");
-    
-    if( callsign[i1+2] == 0 ) { 
+
+    if( callsign[i1+2] == 0 ) {
         //single char suffix
         for (i=0; i<i1; i++) {
             call6[i]=callsign[i];
@@ -143,11 +143,10 @@ void pack_prefix(char *callsign, int32_t *n, int32_t *m, int32_t *nadd ) {
     }
 }
 
-void interleave(unsigned char *sym)
-{
+void interleave(unsigned char *sym) {
     unsigned char tmp[162];
     unsigned char p, i, j;
-    
+
     p=0;
     i=0;
     while (p<162) {
@@ -166,8 +165,8 @@ void interleave(unsigned char *sym)
 int get_wspr_channel_symbols(char* rawmessage, char* hashtab, unsigned char* symbols) {
     int m=0, n=0, ntype=0;
     int i, j, ihash;
-    unsigned char pr3[162]=
-    {1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,
+    unsigned char pr3[162]= {
+        1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,
         0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1,
         0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1,
         1,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,1,
@@ -175,27 +174,28 @@ int get_wspr_channel_symbols(char* rawmessage, char* hashtab, unsigned char* sym
         0,0,0,0,1,0,0,1,0,0,1,1,1,0,1,1,0,0,1,1,
         0,1,0,0,0,1,1,1,0,0,0,0,0,1,0,1,0,0,1,1,
         0,0,0,0,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,
-        0,0};
-    int nu[10]={0,-1,1,0,-1,2,1,0,-1,1};
+        0,0
+    };
+    int nu[10]= {0,-1,1,0,-1,2,1,0,-1,1};
     char *callsign, *grid, *powstr;
     char grid4[5], message[23];
-    
+
     memset(message,0,sizeof(char)*23);
     i=0;
     while ( rawmessage[i] != 0 && i<23 ) {
         message[i]=rawmessage[i];
         i++;
     }
-    
+
     int i1=strcspn(message," ");
     int i2=strcspn(message,"/");
     int i3=strcspn(message,"<");
     int i4=strcspn(message,">");
     int mlen=strlen(message);
-    
+
     // Use the presence and/or absence of "<" and "/" to decide what
     // type of message. No sanity checks! Beware!
-    
+
     if( (i1>3) & (i1<7) & (i2==mlen) & (i3==mlen) ) {
         // Type 1 message: K9AN EN50 33
         //                 xxnxxxx xxnn nn
@@ -204,12 +204,12 @@ int get_wspr_channel_symbols(char* rawmessage, char* hashtab, unsigned char* sym
         powstr = strtok(NULL," ");
         int power = atoi(powstr);
         n = pack_call(callsign);
-        
+
         for (i=0; i<4; i++) {
             grid4[i]=get_locator_character_code(*(grid+i));
         }
         m = pack_grid4_power(grid4,power);
-        
+
     } else if ( i3 == 0 && i4 < mlen ) {
         // Type 3:      <K1ABC> EN50WC 33
         //          <PJ4/K1ABC> FK52UD 37
@@ -225,7 +225,7 @@ int get_wspr_channel_symbols(char* rawmessage, char* hashtab, unsigned char* sym
         ntype=-(power+1);
         ihash=nhash(callsign,strlen(callsign),(uint32_t)146);
         m=128*ihash + ntype + 64;
-        
+
         char grid6[6];
         memset(grid6,32,sizeof(char)*6);
         j=strlen(grid);
@@ -251,7 +251,7 @@ int get_wspr_channel_symbols(char* rawmessage, char* hashtab, unsigned char* sym
     } else {
         return 0;
     }
-    
+
     // pack 50 bits + 31 (0) tail bits into 11 bytes
     unsigned char it, data[11];
     memset(data,0,sizeof(char)*11);
@@ -273,7 +273,7 @@ int get_wspr_channel_symbols(char* rawmessage, char* hashtab, unsigned char* sym
     data[8]=0;
     data[9]=0;
     data[10]=0;
-    
+
     if( printdata ) {
         printf("Data is :");
         for (i=0; i<11; i++) {
@@ -281,13 +281,13 @@ int get_wspr_channel_symbols(char* rawmessage, char* hashtab, unsigned char* sym
         }
         printf("\n");
     }
-    
+
     // make sure that the 11-byte data vector is unpackable
     // unpack it with the routine that the decoder will use and display
     // the result. let the operator decide whether it worked.
 //    char hashtab[32768][13];
 //    memset(hashtab,0,sizeof(char)*32768*13);
-    
+
     char *check_call_loc_pow, *check_callsign, *call, *loc, *pwr;
     check_call_loc_pow=malloc(sizeof(char)*23);
     check_callsign=malloc(sizeof(char)*13);
@@ -298,19 +298,19 @@ int get_wspr_channel_symbols(char* rawmessage, char* hashtab, unsigned char* sym
     memcpy(check_data,data,sizeof(char)*11);
     unpk_(check_data,hashtab,check_call_loc_pow,call,loc,pwr,check_callsign);
 //    printf("Will decode as: %s\n",check_call_loc_pow);
-    
+
     unsigned int nbytes=11; // The message with tail is packed into 11 bytes.
     unsigned int nencoded=162;
     unsigned char channelbits[nencoded];
     memset(channelbits,0,sizeof(char)*nencoded);
-    
+
     encode(channelbits,data,nbytes);
-    
+
     interleave(channelbits);
-    
+
     for (i=0; i<162; i++) {
         symbols[i]=2*channelbits[i]+pr3[i];
     }
-    
+
     return 1;
 }

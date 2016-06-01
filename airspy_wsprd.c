@@ -1,21 +1,21 @@
-/* 
+/*
  * FreeBSD License
- * Copyright (c) 2016, Guenael 
- * All rights reserved. 
+ * Copyright (c) 2016, Guenael
+ * All rights reserved.
  *
  * This file is based on AirSpy project & HackRF project
  *   Copyright 2012 Jared Boone <jared@sharebrained.com>
  *   Copyright 2014-2015 Benjamin Vernoux <bvernoux@airspy.com>
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
- * 
+ *
  * 1. Redistributions of source code must retain the above copyright notice, this
  *    list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
  *    and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,7 +26,7 @@
  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- * 
+ *
  */
 
 
@@ -57,9 +57,9 @@
 
 
 #ifndef bool
-	typedef int bool;
-	#define true 1
-	#define false 0
+    typedef int bool;
+    #define true 1
+    #define false 0
 #endif
 
 
@@ -80,17 +80,17 @@ static int32_t I=0, Q=0;
 int rx_callback(airspy_transfer_t* transfer) {
     int16_t *sigIn = (int16_t*) transfer->samples;
 
-     /* Economic mixer @ fs/4 (upper band)
-       At fs/4, sin and cosin calculation are no longueur necessary.
-     
-               0   | pi/2 |  pi  | 3pi/2
-             ----------------------------
-       sin =   0   |  1   |  0   |  -1  |
-       cos =   1   |  0   | -1   |   0  |
-      
-       out_I = in_I * cos(x) - in_Q * sin(x)
-       out_Q = in_Q * cos(x) + in_I * sin(x)
-       (Weaver technique, keep the lower band) 
+    /* Economic mixer @ fs/4 (upper band)
+      At fs/4, sin and cosin calculation are no longueur necessary.
+
+              0   | pi/2 |  pi  | 3pi/2
+            ----------------------------
+      sin =   0   |  1   |  0   |  -1  |
+      cos =   1   |  0   | -1   |   0  |
+
+      out_I = in_I * cos(x) - in_Q * sin(x)
+      out_Q = in_Q * cos(x) + in_I * sin(x)
+      (Weaver technique, keep the lower band)
     */
     int16_t tmp;
     for (uint32_t i=0; i<(transfer->sample_count); i+=8) {
@@ -150,26 +150,26 @@ void sigint_callback_handler(int signum) {
 
 void usage(void) {
     fprintf(stderr,
-        "airspy_wsprd, a simple WSPR daemon for AirSpy receivers\n\n"
-        "Use:\tairspy_wsprd -f frequency -c callsign -l locator [-options]\n"
-        "\t-f dial frequency [Hz], check http://wsprnet.org/ for frequencies \n"
-        "\t-c your callsign\n"
-        "\t-g your locator grid\n"
-        "\t[-l LNA gain [0-14] (default: 3)]\n"
-        "\t[-m mixer gain [0-15] (default: 5)]\n"
-        "\t[-v VGA gain [0-15] (default: 5)]\n"
-        "\t[-b enable RF bias (default off)]\n"
-        "\t[-p ppm_error (default: -60)]\n"
-        "Example for my station:\n"
-        "\tairspy_wsprd -f 144489000 -c VA2GKA -g FN35fm -l 10 -m 7 -v 7\n");
+            "airspy_wsprd, a simple WSPR daemon for AirSpy receivers\n\n"
+            "Use:\tairspy_wsprd -f frequency -c callsign -l locator [-options]\n"
+            "\t-f dial frequency [Hz], check http://wsprnet.org/ for frequencies \n"
+            "\t-c your callsign\n"
+            "\t-g your locator grid\n"
+            "\t[-l LNA gain [0-14] (default: 3)]\n"
+            "\t[-m mixer gain [0-15] (default: 5)]\n"
+            "\t[-v VGA gain [0-15] (default: 5)]\n"
+            "\t[-b enable RF bias (default off)]\n"
+            "\t[-p ppm_error (default: -60)]\n"
+            "Example for my station:\n"
+            "\tairspy_wsprd -f 144489000 -c VA2GKA -g FN35fm -l 10 -m 7 -v 7\n");
     exit(1);
 }
 
 
 int main(int argc, char** argv) {
     int opt;
-	int result;
-	int exit_code = EXIT_SUCCESS;
+    int result;
+    int exit_code = EXIT_SUCCESS;
 
     // RX buffer allocation (120 sec max @ 375sps)
     idat=malloc(sizeof(double)*65536);
@@ -247,72 +247,72 @@ int main(int argc, char** argv) {
     signal(SIGTERM, &sigint_callback_handler);
     signal(SIGABRT, &sigint_callback_handler);
 
-	result = airspy_init();
-	if( result != AIRSPY_SUCCESS ) {
-		printf("airspy_init() failed: %s (%d)\n", airspy_error_name(result), result);
-		return EXIT_FAILURE;
-	}
+    result = airspy_init();
+    if( result != AIRSPY_SUCCESS ) {
+        printf("airspy_init() failed: %s (%d)\n", airspy_error_name(result), result);
+        return EXIT_FAILURE;
+    }
 
-	result = airspy_open(&device);
-	if( result != AIRSPY_SUCCESS ) {
-		printf("airspy_open() failed: %s (%d)\n", airspy_error_name(result), result);
-		airspy_exit();
-		return EXIT_FAILURE;
-	}
+    result = airspy_open(&device);
+    if( result != AIRSPY_SUCCESS ) {
+        printf("airspy_open() failed: %s (%d)\n", airspy_error_name(result), result);
+        airspy_exit();
+        return EXIT_FAILURE;
+    }
 
-	result = airspy_set_sample_type(device, AIRSPY_SAMPLE_INT16_REAL);
-	if (result != AIRSPY_SUCCESS) {
-		printf("airspy_set_sample_type() failed: %s (%d)\n", airspy_error_name(result), result);
-		airspy_close(device);
-		airspy_exit();
-		return EXIT_FAILURE;
-	}
+    result = airspy_set_sample_type(device, AIRSPY_SAMPLE_INT16_REAL);
+    if (result != AIRSPY_SUCCESS) {
+        printf("airspy_set_sample_type() failed: %s (%d)\n", airspy_error_name(result), result);
+        airspy_close(device);
+        airspy_exit();
+        return EXIT_FAILURE;
+    }
 
-	result = airspy_set_samplerate(device, SAMPLING_FREQUENCY);
-	if (result != AIRSPY_SUCCESS) {
-		printf("airspy_set_samplerate() failed: %s (%d)\n", airspy_error_name(result), result);
-		airspy_close(device);
-		airspy_exit();
-		return EXIT_FAILURE;
-	}
+    result = airspy_set_samplerate(device, SAMPLING_FREQUENCY);
+    if (result != AIRSPY_SUCCESS) {
+        printf("airspy_set_samplerate() failed: %s (%d)\n", airspy_error_name(result), result);
+        airspy_close(device);
+        airspy_exit();
+        return EXIT_FAILURE;
+    }
 
-	result = airspy_set_rf_bias(device, options.bias);
-	if( result != AIRSPY_SUCCESS ) {
-		printf("airspy_set_rf_bias() failed: %s (%d)\n", airspy_error_name(result), result);
-		airspy_close(device);
-		airspy_exit();
-		return EXIT_FAILURE;
-	}
+    result = airspy_set_rf_bias(device, options.bias);
+    if( result != AIRSPY_SUCCESS ) {
+        printf("airspy_set_rf_bias() failed: %s (%d)\n", airspy_error_name(result), result);
+        airspy_close(device);
+        airspy_exit();
+        return EXIT_FAILURE;
+    }
 
-	result = airspy_set_vga_gain(device, options.vgaGain);
-	if( result != AIRSPY_SUCCESS ) {
-		printf("airspy_set_vga_gain() failed: %s (%d)\n", airspy_error_name(result), result);
-	}
+    result = airspy_set_vga_gain(device, options.vgaGain);
+    if( result != AIRSPY_SUCCESS ) {
+        printf("airspy_set_vga_gain() failed: %s (%d)\n", airspy_error_name(result), result);
+    }
 
-	result = airspy_set_mixer_gain(device, options.mixerGain);
-	if( result != AIRSPY_SUCCESS ) {
-		printf("airspy_set_mixer_gain() failed: %s (%d)\n", airspy_error_name(result), result);
-	}
+    result = airspy_set_mixer_gain(device, options.mixerGain);
+    if( result != AIRSPY_SUCCESS ) {
+        printf("airspy_set_mixer_gain() failed: %s (%d)\n", airspy_error_name(result), result);
+    }
 
-	result = airspy_set_lna_gain(device, options.lnaGain);
-	if( result != AIRSPY_SUCCESS ) {
-		printf("airspy_set_lna_gain() failed: %s (%d)\n", airspy_error_name(result), result);
-	}
-	
-	result = airspy_set_freq(device, options.freq + FS4_FREQUENCY + 1500);  // Dial + offset + 1500Hz
-	if( result != AIRSPY_SUCCESS ) {
-		printf("airspy_set_freq() failed: %s (%d)\n", airspy_error_name(result), result);
-		airspy_close(device);
-		airspy_exit();
-		return EXIT_FAILURE;
-	}
+    result = airspy_set_lna_gain(device, options.lnaGain);
+    if( result != AIRSPY_SUCCESS ) {
+        printf("airspy_set_lna_gain() failed: %s (%d)\n", airspy_error_name(result), result);
+    }
+
+    result = airspy_set_freq(device, options.freq + FS4_FREQUENCY + 1500);  // Dial + offset + 1500Hz
+    if( result != AIRSPY_SUCCESS ) {
+        printf("airspy_set_freq() failed: %s (%d)\n", airspy_error_name(result), result);
+        airspy_close(device);
+        airspy_exit();
+        return EXIT_FAILURE;
+    }
 
     // Print used parameter
     time_t rawtime;
     time ( &rawtime );
     struct tm *gtm = gmtime(&rawtime);
-    printf("Starting airspy-wsprd (%04d-%02d-%02d, %02d:%02dz)\n", 
-    gtm->tm_year + 1900, gtm->tm_mon + 1, gtm->tm_mday, gtm->tm_hour, gtm->tm_min);
+    printf("Starting airspy-wsprd (%04d-%02d-%02d, %02d:%02dz)\n",
+           gtm->tm_year + 1900, gtm->tm_mon + 1, gtm->tm_mday, gtm->tm_hour, gtm->tm_min);
     printf("  Frequency  : %d Hz\n", options.freq);
     printf("  Callsign   : %s\n", options.rcall);
     printf("  Locator    : %s\n", options.rloc);
@@ -349,8 +349,7 @@ int main(int argc, char** argv) {
         }
 
         while( (airspy_is_streaming(device) == AIRSPY_TRUE) &&
-            (stop_rx == false) )
-        {
+                (stop_rx == false) ) {
             if (samples_to_xfer == 0)
                 stop_rx = true;
             else
@@ -377,14 +376,14 @@ int main(int argc, char** argv) {
         stop_rx = false;
     }
 
-	if(device != NULL) {
-		result = airspy_close(device);
-		if( result != AIRSPY_SUCCESS ) {
-			printf("airspy_close() failed: %s (%d)\n", airspy_error_name(result), result);
-		}
-		airspy_exit();
-	}
+    if(device != NULL) {
+        result = airspy_close(device);
+        if( result != AIRSPY_SUCCESS ) {
+            printf("airspy_close() failed: %s (%d)\n", airspy_error_name(result), result);
+        }
+        airspy_exit();
+    }
 
     printf("Bye!\n");
-	return exit_code;
+    return exit_code;
 }
