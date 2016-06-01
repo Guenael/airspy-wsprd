@@ -51,6 +51,7 @@
 
 #define FLOAT32_EL_SIZE_BYTE	4        // 4bytes = 32bit float
 #define SAMPLING_FREQUENCY      2500000
+#define FS4_FREQUENCY           SAMPLING_FREQUENCY / 4
 #define DOWNSAMPLE				6667     //6667
 #define CAPTURE_LENGHT          116
 
@@ -298,7 +299,7 @@ int main(int argc, char** argv) {
 		printf("airspy_set_lna_gain() failed: %s (%d)\n", airspy_error_name(result), result);
 	}
 	
-	result = airspy_set_freq(device, options.freq + 625000 + 1500);  // Dial + 1500Hz
+	result = airspy_set_freq(device, options.freq + FS4_FREQUENCY + 1500);  // Dial + offset + 1500Hz
 	if( result != AIRSPY_SUCCESS ) {
 		printf("airspy_set_freq() failed: %s (%d)\n", airspy_error_name(result), result);
 		airspy_close(device);
