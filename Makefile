@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS= -Wall -g -O3 -ffast-math -std=gnu99
+CFLAGS= -Wall -O3 -ffast-math -std=gnu99
 LDFLAGS = -L/usr/lib
 LIBS = -lusb-1.0 -lairspy -lpthread -lfftw3 -lcurl -lm
 
@@ -13,5 +13,3 @@ airspy_wsprd: $(OBJS)
 
 clean:
 	rm -f *.o airspy_wsprd wspr_wisdom.dat hashtable.txt
-
-

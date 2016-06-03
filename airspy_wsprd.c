@@ -77,7 +77,7 @@ struct decoder_state dec;
 /* Reset flow control variable & decimation variables */
 void initSampleStorage() {
     rx_state.record_flag = true;
-    rx_state.samples_to_xfer = rx_options.downsampling * CAPTURE_LENGHT;
+    rx_state.samples_to_xfer = rx_options.rate * CAPTURE_LENGHT;
     rx_state.decim_index=0;
     rx_state.iq_index=0;
     rx_state.I_acc=0;
@@ -166,6 +166,7 @@ int rx_callback(airspy_transfer_t* transfer) {
     if (rx_state.samples_to_xfer == 0) {
         rx_state.record_flag = false;
         printf("RX done! [Buffer size: %d]\n", rx_state.iq_index);
+
 
         /* Send a signal to the other thread to start the decoding */
         pthread_mutex_lock(&dec.ready_mutex); 
@@ -352,7 +353,7 @@ int main(int argc, char** argv) {
 
     /* Calcule decimation rate & frequency offset for fs/4 shift */
     rx_options.fs4 = rx_options.rate / 4;
-    rx_options.downsampling = (int)round((float)rx_options.freq / 375.0);
+    rx_options.downsampling = (int)ceil((double)rx_options.rate / 375.0);
     if(rx_options.ppm != 0)
         rx_options.freq = (int)((float)rx_options.freq * (1.0+((float)rx_options.ppm/1000000.0)));
 
@@ -385,7 +386,7 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    result = airspy_set_samplerate(device, rx_options.downsampling);
+    result = airspy_set_samplerate(device, rx_options.rate);
     if (result != AIRSPY_SUCCESS) {
         printf("airspy_set_samplerate() failed: %s (%d)\n", airspy_error_name(result), result);
         airspy_close(device);
@@ -440,12 +441,14 @@ int main(int argc, char** argv) {
     printf("Starting airspy-wsprd (%04d-%02d-%02d, %02d:%02dz)\n",
            gtm->tm_year + 1900, gtm->tm_mon + 1, gtm->tm_mday, gtm->tm_hour, gtm->tm_min);
     printf("  Frequency  : %d Hz\n", rx_options.freq);
+    printf("  Rate       : %d Hz\n", rx_options.rate);
     printf("  Callsign   : %s\n", dec_options.rcall);
     printf("  Locator    : %s\n", dec_options.rloc);
     printf("  LNA gain   : %d dB\n", rx_options.lnaGain);
     printf("  Mixer gain : %d dB\n", rx_options.mixerGain);
     printf("  VGA gain   : %d dB\n", rx_options.vgaGain);
     printf("  Bias       : %d\n", rx_options.bias);
+    printf("\n*** DEBUG VERSION, official release soon ***\n\n");
 
     // Create the thread and stuff for separate decoding
     pthread_rwlock_init(&dec.rw, NULL);
