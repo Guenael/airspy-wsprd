@@ -31,25 +31,16 @@
 #pragma once
 
 
-// Shared pointer between rx & decoding code
-double *idat;
-double *qdat;
+//#include "airspy_wsprd.h"
 
-// Option & config
-struct wsprd_options {
+// Option & config of the decoder (Shared with the wsprd code)
+struct decoder_options {
     int  freq;
-    char rcall[13];  // FIXME -- buffer overflow
-    char rloc[7];
-    int  lnaGain;
-    int  mixerGain;
-    int  vgaGain;
-    int  bias;
-    int  ppm;
-    char date[7];
-    char uttime[5];
+    char rcall[13];  // Callsign of the RX station
+    char rloc[7];    // Locator of the RX station
+    char date[7];    // Date & time of the processes samples
+    char uttime[5];  //
 };
-struct wsprd_options options;
-
 
 void sync_and_demodulate(double *id, double *qd, long np,
                          unsigned char *symbols, float *f1, float fstep,
@@ -59,6 +50,4 @@ void subtract_signal(double *id, double *qd, long np,
                      float f0, int shift0, float drift0, unsigned char* channel_symbols);
 void subtract_signal2(double *id, double *qd, long np,
                       float f0, int shift0, float drift0, unsigned char* channel_symbols);
-int wspr_decode(unsigned int npoints);
-
-
+int wspr_decode(double *idat, double *qdat, unsigned int npoints, struct decoder_options options);

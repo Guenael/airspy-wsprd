@@ -42,126 +42,238 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <sys/time.h>
+#include <math.h>
 #include <signal.h>
+#include <pthread.h>
 
 #include <libairspy/airspy.h>
 
+#include "airspy_wsprd.h"
 #include "wsprd.h"
 
 
-#define FLOAT32_EL_SIZE_BYTE	4        // 4bytes = 32bit float
+
 #define SAMPLING_FREQUENCY      2500000
 #define FS4_FREQUENCY           SAMPLING_FREQUENCY / 4
 #define DOWNSAMPLE				6667     //6667
 #define CAPTURE_LENGHT          116
+#define MAX_SAMPLES_SIZE        45000    // 43497.825
 
 
-#ifndef bool
-    typedef int bool;
-    #define true 1
-    #define false 0
-#endif
+/* Global declaration for these structs */
+struct receiver_state   rx_state;         
+struct receiver_options rx_options;
+struct decoder_options  dec_options;
+struct airspy_device*   device = NULL;
 
 
-struct airspy_device* device = NULL;
+/* Thread stuff for separate decoding */
+struct decoder_state {
+    pthread_t        thread;
 
-// Variables used for stop conditions
-volatile bool do_exit = false;
-volatile bool stop_rx = false;
-
-
-// Variables used for decimation (CIC algo)
-uint32_t samples_to_xfer = SAMPLING_FREQUENCY * CAPTURE_LENGHT;  // 120 seconds at 2.5Msps
-static uint32_t decim_index=0;
-static uint32_t iq_index=0;
-static int32_t I=0, Q=0;
+    pthread_rwlock_t rw;
+    pthread_cond_t   ready_cond;
+    pthread_mutex_t  ready_mutex;
+};
+struct decoder_state dec;
 
 
+/* Reset flow control variable & decimation variables */
+void initSampleStorage() {
+    rx_state.record_flag = true;
+    rx_state.samples_to_xfer = SAMPLING_FREQUENCY * CAPTURE_LENGHT;
+    rx_state.decim_index=0;
+    rx_state.iq_index=0;
+    rx_state.I_acc=0;
+    rx_state.Q_acc=0;
+}
+
+
+/* Default options for the receiver */
+void initrx_options() {
+    rx_options.lnaGain = 3;    // DEFAULT_LNA_GAIN
+    rx_options.mixerGain = 5;  // DEFAULT_MIXER_GAIN
+    rx_options.vgaGain = 5;    // DEFAULT_VGA_IF_GAIN
+    rx_options.bias = 0;
+    rx_options.ppm = 0;
+    rx_options.rate = 2500000;
+}
+
+
+/* Callback for each buffer received */
 int rx_callback(airspy_transfer_t* transfer) {
     int16_t *sigIn = (int16_t*) transfer->samples;
 
+    /* Do not process the samples if reception not started or over */
+    if ( (rx_state.record_flag == false) || (rx_state.exit_flag == true) )
+        return 0;
+
     /* Economic mixer @ fs/4 (upper band)
-      At fs/4, sin and cosin calculation are no longueur necessary.
+       At fs/4, sin and cosin calculation are no longueur necessary.
 
-              0   | pi/2 |  pi  | 3pi/2
-            ----------------------------
-      sin =   0   |  1   |  0   |  -1  |
-      cos =   1   |  0   | -1   |   0  |
+               0   | pi/2 |  pi  | 3pi/2
+             ----------------------------
+       sin =   0   |  1   |  0   |  -1  |
+       cos =   1   |  0   | -1   |   0  |
 
-      out_I = in_I * cos(x) - in_Q * sin(x)
-      out_Q = in_Q * cos(x) + in_I * sin(x)
-      (Weaver technique, keep the lower band)
+       out_I = in_I * cos(x) - in_Q * sin(x)
+       out_Q = in_Q * cos(x) + in_I * sin(x)
+       (Weaver technique, keep the lower band)
     */
     int16_t tmp;
     for (uint32_t i=0; i<(transfer->sample_count); i+=8) {
         tmp = sigIn[i+3];
-        sigIn[i+3] = - sigIn[i+2];
+        sigIn[i+3] = -sigIn[i+2];
         sigIn[i+2] = tmp;
 
-        sigIn[i+4] = - sigIn[i+4];
-        sigIn[i+5] = - sigIn[i+5];
+        sigIn[i+4] = -sigIn[i+4];
+        sigIn[i+5] = -sigIn[i+5];
 
         tmp = sigIn[i+6];
         sigIn[i+6] = -sigIn[i+7];
         sigIn[i+7] = tmp;
     }
 
-    /* -- Simple square window decimator -- FIXME
-    TODO    : Use/implement a clean fractional decimator (CIC+FIR)
-    PROBLEM : Not perfect in timing & possible aliasing
-
-    Error using this simple decimator = 0.0221 second
-      Ideal = (256/375)*162 = 110.592 seconds
-      This  = (256÷374.925014997)×162 = 110.6141184 seconds
+    /* Simple square window decimator 
+       (could be not perfect in time for some sampling rate. 
+       Ex: AirSpy vs AirSpy Mini, but works fine in practice)
     */
-
-    uint32_t samples_to_write = transfer->sample_count / 2;
-    if (samples_to_write >= samples_to_xfer) {
-        samples_to_write = samples_to_xfer;
+    uint32_t samples_to_write = transfer->sample_count / 2;  // IQ take 2 samples
+    if (samples_to_write >= rx_state.samples_to_xfer) {
+        samples_to_write =  rx_state.samples_to_xfer;
     }
-    samples_to_xfer -= samples_to_write;
+    rx_state.samples_to_xfer -= samples_to_write;
 
     uint32_t i=0;
     while (i < samples_to_write) {
-        I += (int32_t)sigIn[i*2];
-        Q += (int32_t)sigIn[i*2+1];
+        rx_state.I_acc += (int32_t)sigIn[i*2];
+        rx_state.Q_acc += (int32_t)sigIn[i*2+1];
         i++;
-        decim_index++;
-        if (decim_index < DOWNSAMPLE) {
+
+        rx_state.decim_index++;
+        if (rx_state.decim_index < DOWNSAMPLE) {
             continue;
         }
-        idat[iq_index] = (float)I / 1000000.0;
-        qdat[iq_index] = (float)Q / 1000000.0;
-        I = 0;
-        Q = 0;
-        decim_index = 0;
-        iq_index++;
+
+        /* Lock the buffer during writing */     // Overkill ?!
+        pthread_rwlock_wrlock(&dec.rw);  
+        rx_state.idat[rx_state.iq_index] = (float)rx_state.I_acc / 1000000.0; // 4096 * 6667 = 13 654 016
+        rx_state.qdat[rx_state.iq_index] = (float)rx_state.Q_acc / 1000000.0;
+        pthread_rwlock_unlock(&dec.rw);
+
+        rx_state.I_acc = 0;
+        rx_state.Q_acc = 0;
+        rx_state.decim_index = 0;
+        rx_state.iq_index++;
+    }
+
+    if (rx_state.samples_to_xfer == 0) {
+        rx_state.record_flag = false;
+        printf("RX done! [Buffer size: %d]\n", rx_state.iq_index);
+
+        /* Send a signal to the other thread to start the decoding */
+        pthread_mutex_lock(&dec.ready_mutex); 
+        pthread_cond_signal(&dec.ready_cond); 
+        pthread_mutex_unlock(&dec.ready_mutex);
     }
     return 0;
 }
 
 
+static void *wsprDecoder(void *arg) {
+    //struct decoder_state *d = arg; // FIXME, besoin du arg avec struc globals ??
+
+    static double iSamples[MAX_SAMPLES_SIZE]={0};
+    static double qSamples[MAX_SAMPLES_SIZE]={0};
+    //static double *iSamples;
+    //static double *qSamples;
+    static uint32_t samples_len;
+
+    // RX buffer allocation (120 sec max @ 375sps)
+    //iSamples=malloc(sizeof(double)*MAX_SAMPLES_SIZE);  // FIXME -- decim variable
+    //qSamples=malloc(sizeof(double)*MAX_SAMPLES_SIZE);
+
+    while (!rx_state.exit_flag) {
+        pthread_mutex_lock(&dec.ready_mutex); 
+        pthread_cond_wait(&dec.ready_cond, &dec.ready_mutex); 
+        pthread_mutex_unlock(&dec.ready_mutex);
+
+        if(rx_state.exit_flag)  // Abord case, final sig
+            break;
+
+        // Lock the buffer access and make copy
+        pthread_rwlock_wrlock(&dec.rw);
+        memcpy(iSamples, rx_state.idat, rx_state.iq_index * sizeof(double));
+        memcpy(qSamples, rx_state.qdat, rx_state.iq_index * sizeof(double));
+        samples_len = rx_state.iq_index;  // Overkill ?
+        pthread_rwlock_unlock(&dec.rw);
+
+        // Search & decode the signal
+        wspr_decode(iSamples, qSamples, samples_len, dec_options);
+    }
+    pthread_exit(NULL);
+}
+
+
 void sigint_callback_handler(int signum) {
     fprintf(stdout, "Caught signal %d\n", signum);
-    do_exit = true;
-    stop_rx = true;
+    rx_state.exit_flag = true;
+    rx_state.record_flag = false;
+}
+
+
+double atofs(char *s) {
+    /* standard suffixes */
+    char last;
+    int len;
+    double suff = 1.0;
+    len = strlen(s);
+    last = s[len-1];
+    s[len-1] = '\0';
+    switch (last) {
+        case 'g':
+        case 'G':
+            suff *= 1e3;
+        case 'm':
+        case 'M':
+            suff *= 1e3;
+        case 'k':
+        case 'K':
+            suff *= 1e3;
+            suff *= atof(s);
+            s[len-1] = last;
+            return suff;
+    }
+    s[len-1] = last;
+    return atof(s);
 }
 
 
 void usage(void) {
     fprintf(stderr,
             "airspy_wsprd, a simple WSPR daemon for AirSpy receivers\n\n"
-            "Use:\tairspy_wsprd -f frequency -c callsign -l locator [-options]\n"
-            "\t-f dial frequency [Hz], check http://wsprnet.org/ for frequencies \n"
-            "\t-c your callsign\n"
-            "\t-g your locator grid\n"
+            "Use:\tairspy_wsprd -f frequency -c callsign -l locator [options]\n"
+            "\t-f dial frequency [(,k,M)Hz], check http://wsprnet.org/ for frequencies \n"
+            "\t-c your callsign (12 chars max)\n"
+            "\t-g your locator grid (6 chars max)\n"
+            "Receiver extra options:\n"
             "\t[-l LNA gain [0-14] (default: 3)]\n"
-            "\t[-m mixer gain [0-15] (default: 5)]\n"
+            "\t[-m MIXER gain [0-15] (default: 5)]\n"
             "\t[-v VGA gain [0-15] (default: 5)]\n"
-            "\t[-b enable RF bias (default off)]\n"
-            "\t[-p ppm_error (default: -60)]\n"
+            "\t[-b set Bias Tee[0-1], (default: 0 disabled)]\n"
+            "\t[-r sampling rate[2.5M, 3M, 6M, 10M], (default: 2.5M)]\n"
+            "\t[-p ppm_error (default: 0)]\n"
+            "\t[-s serial_number_64bits]: Open device with specified 64bits serial number\n"
+            "\t[-y linearity_gain]: Set linearity simplified gain\n"
+            "\t[-z sensivity_gain]: Set sensitivity simplified gain\n"
+            "Decoder extra options:\n"
+            "\t[-H do not use (or update) the hash table\n"
+            "\t[-Q quick mode - doesn't dig deep for weak signals\n"
+            "\t[-S single pass mode, no subtraction (same as original wsprd)\n"
+            "\t[-W wideband mode - decode signals within +/- 150 Hz of center\n"
+            "\t[-Z x (x is fano metric table bias, default is 0.42)\n\n"
             "Example for my station:\n"
-            "\tairspy_wsprd -f 144489000 -c VA2GKA -g FN35fm -l 10 -m 7 -v 7\n");
+            "\tairspy_wsprd -f 144.489M -r 2.5M -c VA2GKA -g FN35fm -l 10 -m 7 -v 7\n");
     exit(1);
 }
 
@@ -171,50 +283,50 @@ int main(int argc, char** argv) {
     int result;
     int exit_code = EXIT_SUCCESS;
 
+    initrx_options();
+
     // RX buffer allocation (120 sec max @ 375sps)
-    idat=malloc(sizeof(double)*65536);
-    qdat=malloc(sizeof(double)*65536);
+    rx_state.idat=malloc(sizeof(double)*MAX_SAMPLES_SIZE);
+    rx_state.qdat=malloc(sizeof(double)*MAX_SAMPLES_SIZE);
+    rx_state.exit_flag   = false;
+    rx_state.record_flag = false;
 
-    // Default value -- FIXME with getopt...
-    options.lnaGain = 3;
-    options.mixerGain = 5;
-    options.vgaGain = 5;
-    options.bias = 0;
-    options.ppm = 0;
-
-    while ((opt = getopt(argc, argv, "f:c:g:l:m:v:b:p")) != -1) {
+    while ((opt = getopt(argc, argv, "f:c:g:r:l:m:v:b:p")) != -1) {
         switch (opt) {
         case 'f': // Frequency
-            options.freq = (int)atoi(optarg);
+            rx_options.freq = (int)atofs(optarg);
             break;
         case 'c': // Callsign
-            sprintf(options.rcall, "%.12s", optarg);
+            sprintf(dec_options.rcall, "%.12s", optarg);
             break;
         case 'g': // Locator / Grid
-            sprintf(options.rloc, "%.6s", optarg);
+            sprintf(dec_options.rloc, "%.6s", optarg);
+            break;
+        case 'r': // sampling rate
+            rx_options.rate = (int)atofs(optarg);
             break;
         case 'l': // LNA gain
-            options.lnaGain = (int)atoi(optarg);
-            if (options.lnaGain < 0) options.lnaGain = 0;
-            if (options.lnaGain > 14 ) options.lnaGain = 14;
+            rx_options.lnaGain = (int)atoi(optarg);
+            if (rx_options.lnaGain < 0) rx_options.lnaGain = 0;
+            if (rx_options.lnaGain > 14 ) rx_options.lnaGain = 14;
             break;
         case 'm': // Mixer gain
-            options.mixerGain = (int)atoi(optarg);
-            if (options.mixerGain < 0) options.mixerGain = 0;
-            if (options.mixerGain > 15) options.mixerGain = 15;
+            rx_options.mixerGain = (int)atoi(optarg);
+            if (rx_options.mixerGain < 0) rx_options.mixerGain = 0;
+            if (rx_options.mixerGain > 15) rx_options.mixerGain = 15;
             break;
         case 'v': // VGA gain
-            options.vgaGain = (int)atoi(optarg);
-            if (options.vgaGain < 0) options.vgaGain = 0;
-            if (options.vgaGain > 15) options.vgaGain = 15;
+            rx_options.vgaGain = (int)atoi(optarg);
+            if (rx_options.vgaGain < 0) rx_options.vgaGain = 0;
+            if (rx_options.vgaGain > 15) rx_options.vgaGain = 15;
             break;
         case 'b': // Bias setting
-            options.bias = (int)atoi(optarg);
-            if (options.bias < 0) options.bias = 0;
-            if (options.bias > 1) options.bias = 1;
+            rx_options.bias = (int)atoi(optarg);
+            if (rx_options.bias < 0) rx_options.bias = 0;
+            if (rx_options.bias > 1) rx_options.bias = 1;
             break;
         case 'p': // PPS correction
-            options.ppm = (int)atoi(optarg);
+            rx_options.ppm = (int)atoi(optarg);
             break;
         default:
             usage();
@@ -222,24 +334,33 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (options.freq == 0) {
+    if (rx_options.freq == 0) {
         fprintf(stderr, "Please specify a dial frequency.\n");
         fprintf(stderr, " --help for usage...\n");
         exit(1);
     }
 
-    if (options.rcall[0] == 0) {
+    if (dec_options.rcall[0] == 0) {
         fprintf(stderr, "Please specify your callsign.\n");
         fprintf(stderr, " --help for usage...\n");
         exit(1);
     }
 
-    if (options.rloc[0] == 0) {
+    if (dec_options.rloc[0] == 0) {
         fprintf(stderr, "Please specify your locator.\n");
         fprintf(stderr, " --help for usage...\n");
         exit(1);
     }
 
+    // FIXME // TODO : sampling rate check
+
+    /* Calcule decimation rate & frequency offset for fs/4 shift */
+    rx_options.fs4 = rx_options.rate / 4;
+    rx_options.downsampling = (int)round((float)rx_options.freq / 375.0);
+    if(rx_options.ppm != 0)
+        rx_options.freq = (int)((float)rx_options.freq * (1.0+((float)rx_options.ppm/1000000.0)));
+
+    /* If something goes wrong... */
     signal(SIGINT, &sigint_callback_handler);
     signal(SIGILL, &sigint_callback_handler);
     signal(SIGFPE, &sigint_callback_handler);
@@ -276,7 +397,7 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    result = airspy_set_rf_bias(device, options.bias);
+    result = airspy_set_rf_bias(device, rx_options.bias);
     if( result != AIRSPY_SUCCESS ) {
         printf("airspy_set_rf_bias() failed: %s (%d)\n", airspy_error_name(result), result);
         airspy_close(device);
@@ -284,24 +405,33 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    result = airspy_set_vga_gain(device, options.vgaGain);
+    result = airspy_set_vga_gain(device, rx_options.vgaGain);
     if( result != AIRSPY_SUCCESS ) {
         printf("airspy_set_vga_gain() failed: %s (%d)\n", airspy_error_name(result), result);
     }
 
-    result = airspy_set_mixer_gain(device, options.mixerGain);
+    result = airspy_set_mixer_gain(device, rx_options.mixerGain);
     if( result != AIRSPY_SUCCESS ) {
         printf("airspy_set_mixer_gain() failed: %s (%d)\n", airspy_error_name(result), result);
     }
 
-    result = airspy_set_lna_gain(device, options.lnaGain);
+    result = airspy_set_lna_gain(device, rx_options.lnaGain);
     if( result != AIRSPY_SUCCESS ) {
         printf("airspy_set_lna_gain() failed: %s (%d)\n", airspy_error_name(result), result);
     }
 
-    result = airspy_set_freq(device, options.freq + FS4_FREQUENCY + 1500);  // Dial + offset + 1500Hz
+    result = airspy_set_freq(device, rx_options.freq + FS4_FREQUENCY + 1500);  // Dial + offset + 1500Hz
     if( result != AIRSPY_SUCCESS ) {
         printf("airspy_set_freq() failed: %s (%d)\n", airspy_error_name(result), result);
+        airspy_close(device);
+        airspy_exit();
+        return EXIT_FAILURE;
+    }
+
+    /* Sampling run non-stop, for stability and sample are dropped or stored */
+    result = airspy_start_rx(device, rx_callback, NULL);
+    if( result != AIRSPY_SUCCESS ) {
+        printf("airspy_start_rx() failed: %s (%d)\n", airspy_error_name(result), result);
         airspy_close(device);
         airspy_exit();
         return EXIT_FAILURE;
@@ -313,15 +443,22 @@ int main(int argc, char** argv) {
     struct tm *gtm = gmtime(&rawtime);
     printf("Starting airspy-wsprd (%04d-%02d-%02d, %02d:%02dz)\n",
            gtm->tm_year + 1900, gtm->tm_mon + 1, gtm->tm_mday, gtm->tm_hour, gtm->tm_min);
-    printf("  Frequency  : %d Hz\n", options.freq);
-    printf("  Callsign   : %s\n", options.rcall);
-    printf("  Locator    : %s\n", options.rloc);
-    printf("  LNA gain   : %d dB\n", options.lnaGain);
-    printf("  Mixer gain : %d dB\n", options.mixerGain);
-    printf("  VGA gain   : %d dB\n", options.vgaGain);
-    printf("  Bias       : %d\n", options.bias);
+    printf("  Frequency  : %d Hz\n", rx_options.freq);
+    printf("  Callsign   : %s\n", dec_options.rcall);
+    printf("  Locator    : %s\n", dec_options.rloc);
+    printf("  LNA gain   : %d dB\n", rx_options.lnaGain);
+    printf("  Mixer gain : %d dB\n", rx_options.mixerGain);
+    printf("  VGA gain   : %d dB\n", rx_options.vgaGain);
+    printf("  Bias       : %d\n", rx_options.bias);
 
-    while (!do_exit) {
+    // Create the thread and stuff for separate decoding
+    pthread_rwlock_init(&dec.rw, NULL);
+    pthread_cond_init(&dec.ready_cond, NULL);
+    pthread_mutex_init(&dec.ready_mutex, NULL);
+    pthread_create(&dec.thread, NULL, wsprDecoder, NULL);
+
+    // Main loop : Wait, read, decode
+    while (!rx_state.exit_flag) {
         // Time Sync on 2 mins
         struct timeval lTime;
         gettimeofday(&lTime, NULL);
@@ -336,44 +473,22 @@ int main(int argc, char** argv) {
         // Store the date at the begin of the frame
         time ( &rawtime );
         gtm = gmtime(&rawtime);
-        sprintf(options.date,"%02d%02d%02d", gtm->tm_year - 100, gtm->tm_mon + 1, gtm->tm_mday);
-        sprintf(options.uttime,"%02d%02d", gtm->tm_hour, gtm->tm_min+1); //FIXME not +1 legit...
+        sprintf(dec_options.date,"%02d%02d%02d", gtm->tm_year - 100, gtm->tm_mon + 1, gtm->tm_mday);
+        sprintf(dec_options.uttime,"%02d%02d", gtm->tm_hour, gtm->tm_min);
+        dec_options.freq = rx_options.freq;
 
-        // Start to sampling
-        result = airspy_start_rx(device, rx_callback, NULL);
-        if( result != AIRSPY_SUCCESS ) {
-            printf("airspy_start_rx() failed: %s (%d)\n", airspy_error_name(result), result);
-            airspy_close(device);
-            airspy_exit();
-            return EXIT_FAILURE;
+        // Start to store the samples
+        initSampleStorage();
+
+        while( (airspy_is_streaming(device) == AIRSPY_TRUE) && 
+               (rx_state.exit_flag == false) && (rx_state.record_flag == true) ) {
+            sleep(1);
         }
+    }
 
-        while( (airspy_is_streaming(device) == AIRSPY_TRUE) &&
-                (stop_rx == false) ) {
-            if (samples_to_xfer == 0)
-                stop_rx = true;
-            else
-                sleep(1);
-        }
-
-        result = airspy_stop_rx(device);
-        if( result != AIRSPY_SUCCESS ) {
-            printf("airspy_stop_rx() failed: %s (%d)\n", airspy_error_name(result), result);
-        }
-
-        printf("RX done! [Buffer size: %d]\n\n", iq_index);
-
-        /* Decode the samples */
-        if(!do_exit)
-            wspr_decode(iq_index);
-
-        // Rearm for a new RX
-        decim_index=0;
-        I=0;
-        Q=0;
-        iq_index=0;
-        samples_to_xfer = SAMPLING_FREQUENCY * CAPTURE_LENGHT;
-        stop_rx = false;
+    result = airspy_stop_rx(device);
+    if( result != AIRSPY_SUCCESS ) {
+        printf("airspy_stop_rx() failed: %s (%d)\n", airspy_error_name(result), result);
     }
 
     if(device != NULL) {
@@ -385,5 +500,18 @@ int main(int argc, char** argv) {
     }
 
     printf("Bye!\n");
+
+    /* TEST Free the thread join it */
+    pthread_mutex_lock(&dec.ready_mutex); 
+    pthread_cond_signal(&dec.ready_cond); 
+    pthread_mutex_unlock(&dec.ready_mutex);
+    pthread_join(dec.thread, NULL);
+
+    // Destroy the lock/cond/thread
+    pthread_rwlock_destroy(&dec.rw);
+    pthread_cond_destroy(&dec.ready_cond);
+    pthread_mutex_destroy(&dec.ready_mutex);
+    pthread_exit(NULL);  
+
     return exit_code;
 }

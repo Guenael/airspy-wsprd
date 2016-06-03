@@ -43,11 +43,13 @@
 #include "wsprd_utils.h"
 #include "wsprsim_utils.h"
 
+
 #define max(x,y) ((x) > (y) ? (x) : (y))
 // Possible PATIENCE options: FFTW_ESTIMATE, FFTW_ESTIMATE_PATIENT,
 // FFTW_MEASURE, FFTW_PATIENT, FFTW_EXHAUSTIVE
 #define PATIENCE FFTW_ESTIMATE
 fftw_plan PLAN1,PLAN2,PLAN3;
+
 
 unsigned char pr3[162]= {
     1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,
@@ -64,6 +66,7 @@ unsigned char pr3[162]= {
 unsigned long nr;
 
 int printdata=0;
+
 
 //***************************************************************************
 void sync_and_demodulate(double *id, double *qd, long np,
@@ -424,7 +427,7 @@ void subtract_signal2(double *id, double *qd, long np,
 
 
 //***************************************************************************
-int wspr_decode(unsigned int npoints) {
+int wspr_decode(double *idat, double *qdat, unsigned int npoints, struct decoder_options options) {
     int i,j,k;
     unsigned char *symbols, *decdata;
     signed char message[]= {-9,13,-35,123,57,-39,64,0,0,0,0};
@@ -934,6 +937,7 @@ int wspr_decode(unsigned int npoints) {
         curl = curl_easy_init();
         if(curl) {
             curl_easy_setopt(curl, CURLOPT_URL, url);
+            curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
             res = curl_easy_perform(curl);
 
             if(res != CURLE_OK)
@@ -942,8 +946,6 @@ int wspr_decode(unsigned int npoints) {
             curl_easy_cleanup(curl);
         }
     }
-
-    //printf("<DecodeFinished>\n");
 
     fftw_free(fftin);
     fftw_free(fftout);
