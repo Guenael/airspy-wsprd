@@ -52,10 +52,6 @@
 #include "wsprd.h"
 
 
-
-#define SAMPLING_FREQUENCY      2500000
-#define FS4_FREQUENCY           SAMPLING_FREQUENCY / 4
-#define DOWNSAMPLE				6667     //6667
 #define CAPTURE_LENGHT          116
 #define MAX_SAMPLES_SIZE        45000    // 43497.825
 
@@ -81,7 +77,7 @@ struct decoder_state dec;
 /* Reset flow control variable & decimation variables */
 void initSampleStorage() {
     rx_state.record_flag = true;
-    rx_state.samples_to_xfer = SAMPLING_FREQUENCY * CAPTURE_LENGHT;
+    rx_state.samples_to_xfer = rx_options.downsampling * CAPTURE_LENGHT;
     rx_state.decim_index=0;
     rx_state.iq_index=0;
     rx_state.I_acc=0;
@@ -151,7 +147,7 @@ int rx_callback(airspy_transfer_t* transfer) {
         i++;
 
         rx_state.decim_index++;
-        if (rx_state.decim_index < DOWNSAMPLE) {
+        if (rx_state.decim_index < rx_options.downsampling) {
             continue;
         }
 
@@ -389,7 +385,7 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    result = airspy_set_samplerate(device, SAMPLING_FREQUENCY);
+    result = airspy_set_samplerate(device, rx_options.downsampling);
     if (result != AIRSPY_SUCCESS) {
         printf("airspy_set_samplerate() failed: %s (%d)\n", airspy_error_name(result), result);
         airspy_close(device);
@@ -420,7 +416,7 @@ int main(int argc, char** argv) {
         printf("airspy_set_lna_gain() failed: %s (%d)\n", airspy_error_name(result), result);
     }
 
-    result = airspy_set_freq(device, rx_options.freq + FS4_FREQUENCY + 1500);  // Dial + offset + 1500Hz
+    result = airspy_set_freq(device, rx_options.freq + rx_options.fs4 + 1500);  // Dial + offset + 1500Hz
     if( result != AIRSPY_SUCCESS ) {
         printf("airspy_set_freq() failed: %s (%d)\n", airspy_error_name(result), result);
         airspy_close(device);

@@ -12,6 +12,6 @@ airspy_wsprd: $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 clean:
-	rm -f *.o airspy_wsprd wspr_wisdom.dat hhashtable.txt
+	rm -f *.o airspy_wsprd wspr_wisdom.dat hashtable.txt
 
 
