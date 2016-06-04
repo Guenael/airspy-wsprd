@@ -48,17 +48,17 @@ struct decoder_options {
 
 
 struct decoder_results {
-    float  sync;
-    float  snr;
-    float  dt;
-    double freq;
-    char   message[23];
-    char   call[13];
-    char   loc[7];
-    char   pwr[3];
-    float  drift;
-    int    jitter;
-    unsigned int cycles;
+    float    freq;
+    float    sync;
+    float    snr;
+    float    dt;
+    float    drift;
+    uint32_t jitter;
+    char     message[23];
+    char     call[13];
+    char     loc[7];
+    char     pwr[3];
+    uint32_t cycles;
 };
 
 

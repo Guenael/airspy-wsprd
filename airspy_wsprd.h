@@ -58,12 +58,13 @@ struct receiver_state {
 
 /* Option & config of the receiver */
 struct receiver_options {
-    uint32_t freq;
+    uint32_t dialfreq;
+    uint32_t reelfreq;
     uint32_t lnaGain;
     uint32_t mixerGain;
     uint32_t vgaGain;
     uint32_t bias;
-    int32_t  ppm;
+    int32_t  shift;
     uint32_t rate;
     uint32_t fs4;
     uint32_t downsampling;

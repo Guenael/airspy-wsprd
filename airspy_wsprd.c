@@ -44,12 +44,13 @@
 #include "airspy_wsprd.h"
 #include "wsprd.h"
 
-/* Check
+
+/* TODO
  - clean/fix samplerate selection
  - clean/fix serial number section
  - implement linear gain etc.
  - multispot report in one post
- - options.freq & rx.freq avec ajust ppm
+ - type fix (uint32_t etc..)
 */
 
 
@@ -303,7 +304,7 @@ void initrx_options() {
     rx_options.mixerGain = 5;  // DEFAULT_MIXER_GAIN
     rx_options.vgaGain = 5;    // DEFAULT_VGA_IF_GAIN
     rx_options.bias = 0;
-    rx_options.ppm = 0;
+    rx_options.shift = 0;
     rx_options.rate = 2500000;
     rx_options.serialnumber = 0;
 }
@@ -320,7 +321,7 @@ void usage(void) {
     fprintf(stderr,
             "airspy_wsprd, a simple WSPR daemon for AirSpy receivers\n\n"
             "Use:\tairspy_wsprd -f frequency -c callsign -l locator [options]\n"
-            "\t-f dial frequency [(,k,M)Hz], check http://wsprnet.org/ for frequencies \n"
+            "\t-f dial frequency [(,k,M)Hz], check http://wsprnet.org/ for freq.\n"
             "\t-c your callsign (12 chars max)\n"
             "\t-g your locator grid (6 chars max)\n"
             "Receiver extra options:\n"
@@ -329,15 +330,15 @@ void usage(void) {
             "\t[-v VGA gain [0-15] (default: 5)]\n"
             "\t[-b set Bias Tee[0-1], (default: 0 disabled)]\n"
             "\t[-r sampling rate[2.5M, 3M, 6M, 10M], (default: 2.5M)]\n"
-            "\t[-p ppm_error (default: 0)]\n"
-            "\t[-s serial_number_64bits]: Open device with specified 64bits serial number\n"
+            "\t[-p frequency correction (default: 0)]\n"
+            "\t[-s S/N]: Open device with specified 64bits serial number\n"
             "Decoder extra options:\n"
             "\t[-H do not use (or update) the hash table\n"
             "\t[-Q quick mode - doesn't dig deep for weak signals\n"
             "\t[-S single pass mode, no subtraction (same as original wsprd)\n"
             "\t[-W wideband mode - decode signals within +/- 150 Hz of center\n"
-            "Example for my station:\n"
-            "\tairspy_wsprd -f 144.489M -r 2.5M -c VA2GKA -g FN35fm -l 10 -m 7 -v 7\n");
+            "Example:\n"
+            "\tairspy_wsprd -f 144.489M -r 2.5M -c A1XYZ -g AB12cd -l 10 -m 7 -v 7\n");
     exit(1);
 }
 
@@ -356,10 +357,13 @@ int main(int argc, char** argv) {
     rx_state.exit_flag   = false;
     rx_state.record_flag = false;
 
+    if (argc <= 1)
+        usage();
+
     while ((opt = getopt(argc, argv, "f:c:g:r:l:m:v:b:s:p:H:Q:S:W")) != -1) {
         switch (opt) {
         case 'f': // Frequency
-            rx_options.freq = (uint32_t)atofs(optarg);
+            rx_options.dialfreq = (uint32_t)atofs(optarg);
             break;
         case 'c': // Callsign
             sprintf(dec_options.rcall, "%.12s", optarg);
@@ -394,7 +398,7 @@ int main(int argc, char** argv) {
             parse_u64(optarg, &rx_options.serialnumber);
             break;
         case 'p': // PPS correction
-            rx_options.ppm = (int32_t)atoi(optarg);
+            rx_options.shift = (int32_t)atoi(optarg);
             break;
         case 'H':
             dec_options.usehashtable = 0;
@@ -412,7 +416,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (rx_options.freq == 0) {
+    if (rx_options.dialfreq == 0) {
         fprintf(stderr, "Please specify a dial frequency.\n");
         fprintf(stderr, " --help for usage...\n");
         exit(1);
@@ -435,8 +439,7 @@ int main(int argc, char** argv) {
     /* Calcule decimation rate & frequency offset for fs/4 shift */
     rx_options.fs4 = rx_options.rate / 4;
     rx_options.downsampling = (uint32_t)ceil((double)rx_options.rate / 375.0);
-    if(rx_options.ppm != 0)
-        rx_options.freq = (uint32_t)((float)rx_options.freq * (1.0+((float)rx_options.ppm/1000000.0)));
+    rx_options.reelfreq = rx_options.dialfreq + rx_options.shift;
 
     /* If something goes wrong... */
     signal(SIGINT, &sigint_callback_handler);
@@ -507,7 +510,7 @@ int main(int argc, char** argv) {
         printf("airspy_set_lna_gain() failed: %s (%d)\n", airspy_error_name(result), result);
     }
 
-    result = airspy_set_freq(device, rx_options.freq + rx_options.fs4 + 1500);  // Dial + offset + 1500Hz
+    result = airspy_set_freq(device, rx_options.reelfreq + rx_options.fs4 + 1500);  // Dial + offset + 1500Hz
     if( result != AIRSPY_SUCCESS ) {
         printf("airspy_set_freq() failed: %s (%d)\n", airspy_error_name(result), result);
         airspy_close(device);
@@ -539,7 +542,8 @@ int main(int argc, char** argv) {
     struct tm *gtm = gmtime(&rawtime);
     printf("Starting airspy-wsprd (%04d-%02d-%02d, %02d:%02dz) -- Version 0.1\n",
            gtm->tm_year + 1900, gtm->tm_mon + 1, gtm->tm_mday, gtm->tm_hour, gtm->tm_min);
-    printf("  Frequency  : %d Hz\n", rx_options.freq);
+    printf("  Dial freq. : %d Hz\n", rx_options.dialfreq);
+    printf("  Reel freq. : %d Hz\n", rx_options.reelfreq);
     printf("  Rate       : %d Hz\n", rx_options.rate);
     printf("  Callsign   : %s\n", dec_options.rcall);
     printf("  Locator    : %s\n", dec_options.rloc);
@@ -573,7 +577,7 @@ int main(int argc, char** argv) {
         gtm = gmtime(&rawtime);
         sprintf(dec_options.date,"%02d%02d%02d", gtm->tm_year - 100, gtm->tm_mon + 1, gtm->tm_mday);
         sprintf(dec_options.uttime,"%02d%02d", gtm->tm_hour, gtm->tm_min);
-        dec_options.freq = rx_options.freq;
+        dec_options.freq = rx_options.dialfreq;
 
         // Start to store the samples
         initSampleStorage();
