@@ -31,16 +31,38 @@
 #pragma once
 
 
-//#include "airspy_wsprd.h"
-
-// Option & config of the decoder (Shared with the wsprd code)
+/* Option & config of decoder (Shared with the wsprd code) */
 struct decoder_options {
-    int  freq;
-    char rcall[13];  // Callsign of the RX station
-    char rloc[7];    // Locator of the RX station
-    char date[7];    // Date & time of the processes samples
-    char uttime[5];  //
+    int   freq;         // Dial frequency
+    char  rcall[13];    // Callsign of the RX station
+    char  rloc[7];      // Locator of the RX station
+    char  date[7];      // Date & time of the processes samples
+    char  uttime[5];    //  ''
+    int   quickmode;    // Decoder option & tweak
+    int   usehashtable; //  ''
+    int   npasses;      //  ''
+    int   subtraction;  //  ''
+    float fmin;         //  ''
+    float fmax;         //  ''
 };
+
+
+struct result {
+    char   date[7];
+    char   time[5];
+    float  sync;
+    float  snr;
+    float  dt;
+    double freq;
+    char   message[23];
+    char   call[13];
+    char   loc[7];
+    char   pwr[3];
+    float  drift;
+    int    jitter;
+    unsigned int cycles;
+};
+
 
 void sync_and_demodulate(float *id, float *qd, long np,
                          unsigned char *symbols, float *f1, float fstep,

@@ -37,14 +37,6 @@
 #include <string.h>
 #include <sys/time.h>
 #include <pthread.h>
-//#include <unistd.h>
-//#include <getopt.h>
-//#include <fcntl.h>
-//#include <errno.h>
-//#include <limits.h>
-//#include <sys/types.h>
-//#include <sys/stat.h>
-//#include <time.h>
 
 #include <libairspy/airspy.h>
 
@@ -52,15 +44,18 @@
 #include "wsprd.h"
 
 /* Check
- - conv double en float ?
+ - finir conv double en float ?
+ - deplacer struct dans wsprd.h
  - normalisation types uint32_t etc...
  - options.freq & rx.freq avec ajust ppm
+ - serial rx
+ - options decoder Legacy, normal, Deep
  - -fomit-frame-pointer -fstrict-aliasing
 */
 
 
-#define CAPTURE_LENGHT          116
-#define MAX_SAMPLES_SIZE        45000    // 43497.825
+#define CAPTURE_LENGHT    116
+#define MAX_SAMPLES_SIZE  45000    // (120 sec max @ 375sps)
 
 
 /* Global declaration for these structs */
@@ -89,6 +84,16 @@ void initSampleStorage() {
     rx_state.iq_index=0;
     rx_state.I_acc=0;
     rx_state.Q_acc=0;
+}
+
+
+/* Default options for the decoder */
+void initDecoder_options() {
+    dec_options.usehashtable = 1;
+    dec_options.npasses = 2;
+    dec_options.subtraction = 1;
+    dec_options.fmin=-110.0;
+    dec_options.fmax=110.0;
 }
 
 
@@ -189,13 +194,7 @@ static void *wsprDecoder(void *arg) {
 
     static float iSamples[MAX_SAMPLES_SIZE]={0};
     static float qSamples[MAX_SAMPLES_SIZE]={0};
-    //static double *iSamples;
-    //static double *qSamples;
     static uint32_t samples_len;
-
-    // RX buffer allocation (120 sec max @ 375sps)
-    //iSamples=malloc(sizeof(double)*MAX_SAMPLES_SIZE);  // FIXME -- decim variable
-    //qSamples=malloc(sizeof(double)*MAX_SAMPLES_SIZE);
 
     while (!rx_state.exit_flag) {
         pthread_mutex_lock(&dec.ready_mutex); 
@@ -275,7 +274,6 @@ void usage(void) {
             "\t[-Q quick mode - doesn't dig deep for weak signals\n"
             "\t[-S single pass mode, no subtraction (same as original wsprd)\n"
             "\t[-W wideband mode - decode signals within +/- 150 Hz of center\n"
-            "\t[-Z x (x is fano metric table bias, default is 0.42)\n\n"
             "Example for my station:\n"
             "\tairspy_wsprd -f 144.489M -r 2.5M -c VA2GKA -g FN35fm -l 10 -m 7 -v 7\n");
     exit(1);
@@ -288,6 +286,7 @@ int main(int argc, char** argv) {
     int exit_code = EXIT_SUCCESS;
 
     initrx_options();
+    initDecoder_options();
 
     // RX buffer allocation (120 sec max @ 375sps)
     rx_state.idat=malloc(sizeof(float)*MAX_SAMPLES_SIZE);
@@ -295,7 +294,7 @@ int main(int argc, char** argv) {
     rx_state.exit_flag   = false;
     rx_state.record_flag = false;
 
-    while ((opt = getopt(argc, argv, "f:c:g:r:l:m:v:b:p")) != -1) {
+    while ((opt = getopt(argc, argv, "f:c:g:r:l:m:v:b:p:H:Q:S:W")) != -1) {
         switch (opt) {
         case 'f': // Frequency
             rx_options.freq = (int)atofs(optarg);
@@ -332,6 +331,16 @@ int main(int argc, char** argv) {
         case 'p': // PPS correction
             rx_options.ppm = (int)atoi(optarg);
             break;
+        case 'H':
+            dec_options.usehashtable = 0;
+        case 'Q':
+            dec_options.quickmode = 1;
+        case 'S':
+            dec_options.subtraction = 0; //single pass mode (same as original wsprd)
+            dec_options.npasses = 1;              
+        case 'W':
+            dec_options.fmin = -150.0;
+            dec_options.fmax = 150.0;
         default:
             usage();
             break;

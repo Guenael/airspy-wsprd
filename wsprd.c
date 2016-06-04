@@ -43,8 +43,8 @@
 #include "wsprd_utils.h"
 #include "wsprsim_utils.h"
 
-#define DT       1/375
-#define DF       375/256
+#define DT       1.0/375.0
+#define DF       375.0/256.0
 #define TWOPIDT  2*M_PI*DT
 
 #define max(x,y) ((x) > (y) ? (x) : (y))
@@ -75,8 +75,7 @@ int printdata=0;
 void sync_and_demodulate(float *id, float *qd, long np,
                          unsigned char *symbols, float *f1, float fstep,
                          int *shift1, int lagmin, int lagmax, int lagstep,
-                         float *drift1, int symfac, float *sync, int mode)
-{
+                         float *drift1, int symfac, float *sync, int mode) {
     /***********************************************************************
      * mode = 0: no frequency or drift search. find best time lag.          *
      *        1: no time lag or drift search. find best frequency.          *
@@ -218,7 +217,6 @@ void sync_and_demodulate(float *id, float *qd, long np,
     }
     return;
 }
-
 
 
 /***************************************************************************
@@ -407,39 +405,22 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
     char *data_dir=NULL;
     char wisdom_fname[200],all_fname[200],spots_fname[200];
     char timer_fname[200],hash_fname[200];
-    int delta,verbose=0,quickmode=0;  // TODO -- option argv
-    int writenoise=0,usehashtable=1,wspr_type=2, ipass;
-    int npasses=1, subtraction=0; // TODO -- optin argv
+    int delta,verbose=0;
+    int writenoise=0,wspr_type=2, ipass;
     int shift1, lagmin, lagmax, lagstep, worth_a_try, not_decoded;
     unsigned int nbits=81;
     unsigned int metric, maxcycles, cycles, maxnp;
-    float df=375.0/256.0/2;
     float freq0[200],snr0[200],drift0[200],sync0[200];
     int shift0[200];
-    float dt=1.0/375.0, dt_print;
-    double freq_print;
-    double dialfreq= (double)options.freq / 1e6; // check
+    float df=375.0/256.0/2;
+    //float dt=1.0/375.0, 
+    float dt_print;
+    float freq_print;
+    float dialfreq= (float)options.freq / 1e6; // check
     float dialfreq_error=0.0;
-    float fmin=-110, fmax=110;
     float f1, fstep, sync1=0.0, drift1;
     float psavg[512];
 
-
-    struct result {
-        char date[7];
-        char time[5];
-        float sync;
-        float snr;
-        float dt;
-        double freq;
-        char message[23];
-        char call[13];
-        char loc[7];
-        char pwr[3];
-        float drift;
-        unsigned int cycles;
-        int jitter;
-    };
     struct result decodes[50];
 
     char *hashtab;
@@ -522,7 +503,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
     }
 
 
-    if( usehashtable ) {
+    if( options.usehashtable ) {
         char line[80], hcall[12];
         if( (fhash=fopen(hash_fname,"r+")) ) {
             while (fgets(line, sizeof(line), fhash) != NULL) {
@@ -537,11 +518,11 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
 
 
     //*************** main loop starts here *****************
-    for (ipass=0; ipass<npasses; ipass++) {
+    for (ipass=0; ipass<options.npasses; ipass++) {
 
         if( ipass == 1 && uniques == 0 ) break;
         if( ipass == 1 ) {  //otherwise we bog down on the second pass
-            quickmode = 1;
+            options.quickmode = 1;
         }
 
         memset(ps,0.0, sizeof(float)*512*nffts);
@@ -627,13 +608,13 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
         }
 
         // Compute corrected fmin, fmax, accounting for dial frequency error
-        fmin += dialfreq_error;    // dialfreq_error is in units of Hz
-        fmax += dialfreq_error;
+        options.fmin += dialfreq_error;    // dialfreq_error is in units of Hz
+        options.fmax += dialfreq_error;
 
         // Don't waste time on signals outside of the range [fmin,fmax].
         i=0;
         for( j=0; j<npk; j++) {
-            if( freq0[j] >= fmin && freq0[j] <= fmax ) {
+            if( freq0[j] >= options.fmin && freq0[j] <= options.fmax ) {
                 freq0[i]=freq0[j];
                 snr0[i]=snr0[j];
                 i++;
@@ -756,7 +737,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
             lagmin=shift1-144;
             lagmax=shift1+144;
             lagstep=8;
-            if(quickmode) lagstep=16;
+            if(options.quickmode) lagstep=16;
 
             sync_and_demodulate(idat, qdat, npoints, symbols, &f1, fstep, &shift1,
                                 lagmin, lagmax, lagstep, &drift1, symfac, &sync1, 0);
@@ -807,7 +788,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
 
                 }
                 idt++;
-                if( quickmode ) break;
+                if( options.quickmode ) break;
             }
 
             if( worth_a_try && !not_decoded ) {
@@ -827,7 +808,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
                 // call_loc_pow string and also callsign (for de-duping).
                 noprint=unpk_(message,hashtab,call_loc_pow,call,loc,pwr,callsign);
 
-                if( subtraction && (ipass == 0) && !noprint ) {
+                if( options.subtraction && (ipass == 0) && !noprint ) {
 
                     unsigned char channel_symbols[162];
 
@@ -856,10 +837,10 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
 
                     if( wspr_type == 15 ) {
                         freq_print=dialfreq+(1500+112.5+f1/8.0)/1e6;
-                        dt_print=shift1*8*dt-2.0;
+                        dt_print=shift1*8*DT-2.0;
                     } else {
                         freq_print=dialfreq+(1500+f1)/1e6;
-                        dt_print=shift1*dt-2.0;
+                        dt_print=shift1*DT-2.0;
                     }
 
                     decodes[uniques-1].sync=sync1;
@@ -931,7 +912,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
     fftwf_destroy_plan(PLAN2);
     fftwf_destroy_plan(PLAN3);
 
-    if( usehashtable ) {
+    if( options.usehashtable ) {
         fhash=fopen(hash_fname,"w");
         for (i=0; i<32768; i++) {
             if( strncmp(hashtab+i*13,"\0",1) != 0 ) {
