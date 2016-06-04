@@ -28,11 +28,12 @@
 
 #pragma once
 
+
 #include <unistd.h>
 
 
 #ifndef bool
-    typedef int bool;
+    typedef uint32_t bool;
     #define true  1
     #define false 0
 #endif
@@ -44,9 +45,8 @@ struct receiver_state {
     bool record_flag;
 
     /* Buffer used for sampling */
-    float   *idat;
-    float   *qdat;
-    unsigned int iqlen;  // FIXME uint32_t == iq_index...
+    float    *idat;
+    float    *qdat;
 
     /* Variables used for decimation */
     uint32_t samples_to_xfer;
@@ -58,13 +58,15 @@ struct receiver_state {
 
 /* Option & config of the receiver */
 struct receiver_options {
-    int  freq;
-    int  lnaGain;
-    int  mixerGain;
-    int  vgaGain;
-    int  bias;
-    int  ppm;
-    int  rate;
-    int  fs4;
-    int  downsampling;
+    uint32_t freq;
+    uint32_t lnaGain;
+    uint32_t mixerGain;
+    uint32_t vgaGain;
+    uint32_t bias;
+    int32_t  ppm;
+    uint32_t rate;
+    uint32_t fs4;
+    uint32_t downsampling;
+    uint64_t serialnumber;
+    uint64_t readserialno;
 };

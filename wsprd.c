@@ -35,7 +35,6 @@
 #include <stdint.h>
 #include <time.h>
 #include <fftw3.h>
-#include <curl/curl.h>
 
 #include "wsprd.h"
 #include "fano.h"
@@ -397,7 +396,9 @@ void subtract_signal2(float *id, float *qd, long np,
 
 
 //***************************************************************************
-int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_options options) {
+int wspr_decode(float *idat, float *qdat, unsigned int npoints, 
+    struct decoder_options options, struct decoder_results *decodes, int *n_results) {
+
     int i,j,k;
     unsigned char *symbols, *decdata;
     signed char message[]= {-9,13,-35,123,57,-39,64,0,0,0,0};
@@ -412,16 +413,13 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
     unsigned int metric, maxcycles, cycles, maxnp;
     float freq0[200],snr0[200],drift0[200],sync0[200];
     int shift0[200];
-    float df=375.0/256.0/2;
-    //float dt=1.0/375.0, 
     float dt_print;
     float freq_print;
     float dialfreq= (float)options.freq / 1e6; // check
     float dialfreq_error=0.0;
     float f1, fstep, sync1=0.0, drift1;
-    float psavg[512];
-
-    struct result decodes[50];
+    int noprint=0;
+    int uniques=0;
 
     char *hashtab;
     hashtab=malloc(sizeof(char)*32768*13);
@@ -441,8 +439,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
     char allcalls[100][13];
     memset(allfreqs,0,sizeof(float)*100);
     memset(allcalls,0,sizeof(char)*100*13);
-
-    int uniques=0, noprint=0;
+  
 
     // Parameters used for performance-tuning:
     maxcycles=10000;                         //Fano timeout limit
@@ -502,7 +499,6 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
         w[i]=sin(0.006147931*i);
     }
 
-
     if( options.usehashtable ) {
         char line[80], hcall[12];
         if( (fhash=fopen(hash_fname,"r+")) ) {
@@ -515,7 +511,6 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
         }
         fclose(fhash);
     }
-
 
     //*************** main loop starts here *****************
     for (ipass=0; ipass<options.npasses; ipass++) {
@@ -541,9 +536,9 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
             }
         }
 
-
         // Compute average spectrum
-        memset(psavg,0.0, sizeof(float)*512);
+        float psavg[512]={0};
+        //memset(psavg,0.0, sizeof(float)*512);
         for (i=0; i<nffts; i++) {
             for (j=0; j<512; j++) {
                 psavg[j]=psavg[j]+ps[j][i];
@@ -601,7 +596,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
         int npk=0;
         for(j=1; j<410; j++) {
             if((smspec[j]>smspec[j-1]) && (smspec[j]>smspec[j+1]) && (npk<200)) {
-                freq0[npk]=(j-205)*df;
+                freq0[npk]=(j-205)*(DF/2.0);
                 snr0[npk]=10*log10(smspec[j])-snr_scaling_factor;
                 npk++;
             }
@@ -638,26 +633,18 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
             }
         }
 
-
-
         /* Make coarse estimates of shift (DT), freq, and drift
-
          * Look for time offsets up to +/- 8 symbols (about +/- 5.4 s) relative
-         to nominal start time, which is 2 seconds into the file
-
+           to nominal start time, which is 2 seconds into the file
          * Calculates shift relative to the beginning of the file
-
          * Negative shifts mean that signal started before start of file
-
          * The program prints DT = shift-2 s
-
          * Shifts that cause sync vector to fall off of either end of the data
-         vector are accommodated by "partial decoding", such that missing
-         symbols produce a soft-decision symbol value of 128
-
+           vector are accommodated by "partial decoding", such that missing
+           symbols produce a soft-decision symbol value of 128
          * The frequency drift model is linear, deviation of +/- drift/2 over the
-         span of 162 symbols, with deviation equal to 0 at the center of the
-         signal vector.
+           span of 162 symbols, with deviation equal to 0 at the center of the
+           signal vector.
          */
 
         int idrift,ifr,if0,ifd,k0;
@@ -665,14 +652,14 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
         float smax,ss,pow,p0,p1,p2,p3;
         for(j=0; j<npk; j++) {                              //For each candidate...
             smax=-1e30;
-            if0=freq0[j]/df+256;
+            if0=freq0[j]/(DF/2.0)+256;
             for (ifr=if0-1; ifr<=if0+1; ifr++) {                      //Freq search
                 for( k0=-10; k0<22; k0++) {                             //Time search
                     for (idrift=-maxdrift; idrift<=maxdrift; idrift++) {  //Drift search
                         ss=0.0;
                         pow=0.0;
                         for (k=0; k<162; k++) {                             //Sum over symbols
-                            ifd=ifr+((float)k-81.0)/81.0*( (float)idrift )/(2.0*df);
+                            ifd=ifr+((float)k-81.0)/81.0*( (float)idrift )/DF;
                             kindex=k0+2*k;
                             if( kindex < nffts ) {
                                 p0=ps[ifd-3][kindex];
@@ -694,7 +681,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
                             smax=sync1;
                             shift0[j]=128*(k0+1);
                             drift0[j]=idrift;
-                            freq0[j]=(ifr-256)*df;
+                            freq0[j]=(ifr-256)*(DF/2.0);
                             sync0[j]=sync1;
                         }
                     }
@@ -742,12 +729,10 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
             sync_and_demodulate(idat, qdat, npoints, symbols, &f1, fstep, &shift1,
                                 lagmin, lagmax, lagstep, &drift1, symfac, &sync1, 0);
 
-
             // Fine search for frequency peak (mode 1)
             fstep=0.1;
             sync_and_demodulate(idat, qdat, npoints, symbols, &f1, fstep, &shift1,
                                 lagmin, lagmax, lagstep, &drift1, symfac, &sync1, 1);
-
 
             if( sync1 > minsync1 ) {
                 worth_a_try = 1;
@@ -780,27 +765,20 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
                 if((sync1 > minsync2) && (rms > minrms)) {
                     deinterleave(symbols);
 
-
                     not_decoded = fano(&metric,&cycles,&maxnp,decdata,symbols,nbits,
                                        mettab,delta,maxcycles);
-
-
-
                 }
                 idt++;
                 if( options.quickmode ) break;
             }
 
             if( worth_a_try && !not_decoded ) {
-
                 for(i=0; i<11; i++) {
-
                     if( decdata[i]>127 ) {
                         message[i]=decdata[i]-256;
                     } else {
                         message[i]=decdata[i];
                     }
-
                 }
 
                 // Unpack the decoded message, update the hashtable, apply
@@ -809,7 +787,6 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
                 noprint=unpk_(message,hashtab,call_loc_pow,call,loc,pwr,callsign);
 
                 if( options.subtraction && (ipass == 0) && !noprint ) {
-
                     unsigned char channel_symbols[162];
 
                     if( get_wspr_channel_symbols(call_loc_pow, hashtab, channel_symbols) ) {
@@ -834,7 +811,6 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
 
                     // Add an extra space at the end of each line so that wspr-x doesn't
                     // truncate the power (TNX to DL8FCL!)
-
                     if( wspr_type == 15 ) {
                         freq_print=dialfreq+(1500+112.5+f1/8.0)/1e6;
                         dt_print=shift1*8*DT-2.0;
@@ -850,8 +826,6 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
                     decodes[uniques-1].drift=drift1;
                     decodes[uniques-1].cycles=cycles;
                     decodes[uniques-1].jitter=ii;
-                    strcpy(decodes[uniques-1].date,options.date);
-                    strcpy(decodes[uniques-1].time,options.uttime);
                     strcpy(decodes[uniques-1].message,call_loc_pow);
                     strcpy(decodes[uniques-1].call,call);
                     strcpy(decodes[uniques-1].loc,loc);
@@ -861,8 +835,8 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
         }
     }
 
-    // sort the result in order of increasing frequency
-    struct result temp;
+    // sort the result
+    struct decoder_results temp;
     for (j = 1; j <= uniques - 1; j++) {
         for (k = 0; k < uniques - j ; k++) {
             if (decodes[k].snr < decodes[k+1].snr) {
@@ -873,32 +847,8 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_o
         }
     }
 
-    CURL *curl;
-    CURLcode res;
-    char url[256];
-
-    for (i=0; i<uniques; i++) {
-        sprintf(url,"http://wsprnet.org/post?function=wspr&rcall=%s&rgrid=%s&rqrg=%.6f&date=%s&time=%s&sig=%.0f&dt=%.1f&tqrg=%.6f&tcall=%s&tgrid=%s&dbm=%s&version=0.1_wsprd&mode=2",
-                options.rcall, options.rloc, decodes[i].freq, decodes[i].date, decodes[i].time,
-                decodes[i].snr, decodes[i].dt, decodes[i].freq,
-                decodes[i].call, decodes[i].loc, decodes[i].pwr);
-
-        printf("Spot : %3.1f %4.1f %10.6f %2d  %-s\n",
-               decodes[i].snr, decodes[i].dt, decodes[i].freq,
-               (int)decodes[i].drift, decodes[i].message);
-
-        curl = curl_easy_init();
-        if(curl) {
-            curl_easy_setopt(curl, CURLOPT_URL, url);
-            curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
-            res = curl_easy_perform(curl);
-
-            if(res != CURLE_OK)
-                fprintf(stderr, "curl_easy_perform() failed: %s\n",curl_easy_strerror(res));
-
-            curl_easy_cleanup(curl);
-        }
-    }
+    // Return number of spots to the calling fct
+    *n_results = uniques;
 
     fftwf_free(fftin);
     fftwf_free(fftout);

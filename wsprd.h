@@ -47,9 +47,7 @@ struct decoder_options {
 };
 
 
-struct result {
-    char   date[7];
-    char   time[5];
+struct decoder_results {
     float  sync;
     float  snr;
     float  dt;
@@ -72,4 +70,5 @@ void subtract_signal(float *id, float *qd, long np,
                      float f0, int shift0, float drift0, unsigned char* channel_symbols);
 void subtract_signal2(float *id, float *qd, long np,
                       float f0, int shift0, float drift0, unsigned char* channel_symbols);
-int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_options options);
+int wspr_decode(float *idat, float *qdat, unsigned int npoints, 
+    struct decoder_options options, struct decoder_results *decodes, int *n_results);
