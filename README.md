@@ -5,7 +5,7 @@ This non-interactive application allows automatic reporting of WSPR spots on WSP
 <h3>Basically, this application :</h3>
 - Perform a time alignment (2 mins)
 - Start the reception using the AirSpy lib
-- Decimate the IQ data (2.5Msps to 375 sps)
+- Decimate the IQ data (ex. 2.5Msps to 375 sps)
 - Decode WSPR signal
 - Push the spots on WSPRnet
 - Loop...
@@ -28,7 +28,5 @@ This non-interactive application allows automatic reporting of WSPR spots on WSP
 - Remove unused modules (ex: /etc/modules: #snd-bcm2835)
 
 <h3>TODO:</h3>
-- Use pthreads to dispatch the load during the decoding/receiving
-- Doc & cleanup
 - Port to rtl-sdr
 - Port to GnuRadio : gr-wspr
