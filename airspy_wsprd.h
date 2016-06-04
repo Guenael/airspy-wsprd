@@ -44,8 +44,8 @@ struct receiver_state {
     bool record_flag;
 
     /* Buffer used for sampling */
-    double   *idat;
-    double   *qdat;
+    float   *idat;
+    float   *qdat;
     unsigned int iqlen;  // FIXME uint32_t == iq_index...
 
     /* Variables used for decimation */

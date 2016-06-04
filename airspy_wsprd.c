@@ -32,24 +32,31 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <getopt.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <limits.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <sys/time.h>
-#include <math.h>
 #include <signal.h>
+#include <math.h>
+#include <string.h>
+#include <sys/time.h>
 #include <pthread.h>
+//#include <unistd.h>
+//#include <getopt.h>
+//#include <fcntl.h>
+//#include <errno.h>
+//#include <limits.h>
+//#include <sys/types.h>
+//#include <sys/stat.h>
+//#include <time.h>
 
 #include <libairspy/airspy.h>
 
 #include "airspy_wsprd.h"
 #include "wsprd.h"
+
+/* Check
+ - conv double en float ?
+ - normalisation types uint32_t etc...
+ - options.freq & rx.freq avec ajust ppm
+ - -fomit-frame-pointer -fstrict-aliasing
+*/
 
 
 #define CAPTURE_LENGHT          116
@@ -180,8 +187,8 @@ int rx_callback(airspy_transfer_t* transfer) {
 static void *wsprDecoder(void *arg) {
     //struct decoder_state *d = arg; // FIXME, besoin du arg avec struc globals ??
 
-    static double iSamples[MAX_SAMPLES_SIZE]={0};
-    static double qSamples[MAX_SAMPLES_SIZE]={0};
+    static float iSamples[MAX_SAMPLES_SIZE]={0};
+    static float qSamples[MAX_SAMPLES_SIZE]={0};
     //static double *iSamples;
     //static double *qSamples;
     static uint32_t samples_len;
@@ -200,8 +207,8 @@ static void *wsprDecoder(void *arg) {
 
         // Lock the buffer access and make copy
         pthread_rwlock_wrlock(&dec.rw);
-        memcpy(iSamples, rx_state.idat, rx_state.iq_index * sizeof(double));
-        memcpy(qSamples, rx_state.qdat, rx_state.iq_index * sizeof(double));
+        memcpy(iSamples, rx_state.idat, rx_state.iq_index * sizeof(float));
+        memcpy(qSamples, rx_state.qdat, rx_state.iq_index * sizeof(float));
         samples_len = rx_state.iq_index;  // Overkill ?
         pthread_rwlock_unlock(&dec.rw);
 
@@ -283,8 +290,8 @@ int main(int argc, char** argv) {
     initrx_options();
 
     // RX buffer allocation (120 sec max @ 375sps)
-    rx_state.idat=malloc(sizeof(double)*MAX_SAMPLES_SIZE);
-    rx_state.qdat=malloc(sizeof(double)*MAX_SAMPLES_SIZE);
+    rx_state.idat=malloc(sizeof(float)*MAX_SAMPLES_SIZE);
+    rx_state.qdat=malloc(sizeof(float)*MAX_SAMPLES_SIZE);
     rx_state.exit_flag   = false;
     rx_state.record_flag = false;
 

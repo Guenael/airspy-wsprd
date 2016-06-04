@@ -42,12 +42,12 @@ struct decoder_options {
     char uttime[5];  //
 };
 
-void sync_and_demodulate(double *id, double *qd, long np,
+void sync_and_demodulate(float *id, float *qd, long np,
                          unsigned char *symbols, float *f1, float fstep,
                          int *shift1, int lagmin, int lagmax, int lagstep,
                          float *drift1, int symfac, float *sync, int mode);
-void subtract_signal(double *id, double *qd, long np,
+void subtract_signal(float *id, float *qd, long np,
                      float f0, int shift0, float drift0, unsigned char* channel_symbols);
-void subtract_signal2(double *id, double *qd, long np,
+void subtract_signal2(float *id, float *qd, long np,
                       float f0, int shift0, float drift0, unsigned char* channel_symbols);
-int wspr_decode(double *idat, double *qdat, unsigned int npoints, struct decoder_options options);
+int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_options options);

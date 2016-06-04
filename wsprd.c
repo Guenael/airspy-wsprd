@@ -43,12 +43,15 @@
 #include "wsprd_utils.h"
 #include "wsprsim_utils.h"
 
+#define DT       1/375
+#define DF       375/256
+#define TWOPIDT  2*M_PI*DT
 
 #define max(x,y) ((x) > (y) ? (x) : (y))
 // Possible PATIENCE options: FFTW_ESTIMATE, FFTW_ESTIMATE_PATIENT,
 // FFTW_MEASURE, FFTW_PATIENT, FFTW_EXHAUSTIVE
 #define PATIENCE FFTW_ESTIMATE
-fftw_plan PLAN1,PLAN2,PLAN3;
+fftwf_plan PLAN1,PLAN2,PLAN3;
 
 
 unsigned char pr3[162]= {
@@ -69,89 +72,68 @@ int printdata=0;
 
 
 //***************************************************************************
-void sync_and_demodulate(double *id, double *qd, long np,
+void sync_and_demodulate(float *id, float *qd, long np,
                          unsigned char *symbols, float *f1, float fstep,
                          int *shift1, int lagmin, int lagmax, int lagstep,
-                         float *drift1, int symfac, float *sync, int mode) {
+                         float *drift1, int symfac, float *sync, int mode)
+{
     /***********************************************************************
      * mode = 0: no frequency or drift search. find best time lag.          *
      *        1: no time lag or drift search. find best frequency.          *
      *        2: no frequency or time lag search. calculate soft-decision   *
      *           symbols using passed frequency and shift.                  *
      ************************************************************************/
-
-    float dt=1.0/375.0, df=375.0/256.0, fbest=0.0;
-    int i, j, k;
-    double pi=4.*atan(1.0),twopidt;
+    
+    float fbest=0.0;
     float f0=0.0,fp,ss;
     int lag;
     static float fplast=-10000.0;
-    double i0[162],q0[162],i1[162],q1[162],i2[162],q2[162],i3[162],q3[162];
-    double p0,p1,p2,p3,cmet,totp,syncmax,fac;
-    double c0[256],s0[256],c1[256],s1[256],c2[256],s2[256],c3[256],s3[256];
-    double dphi0, cdphi0, sdphi0, dphi1, cdphi1, sdphi1, dphi2, cdphi2, sdphi2,
-           dphi3, cdphi3, sdphi3;
+    float i0[162],q0[162],i1[162],q1[162],i2[162],q2[162],i3[162],q3[162];
+    float p0,p1,p2,p3,cmet,totp,syncmax,fac;
+    float c0[256],s0[256],c1[256],s1[256],c2[256],s2[256],c3[256],s3[256];
+    float dphi0, cdphi0, sdphi0, 
+          dphi1, cdphi1, sdphi1, 
+          dphi2, cdphi2, sdphi2,
+          dphi3, cdphi3, sdphi3;
     float fsum=0.0, f2sum=0.0, fsymb[162];
-    int best_shift = 0, ifreq;
+    int best_shift = 0;
     int ifmin=0, ifmax=0;
-
+    
     syncmax=-1e30;
-    if( mode == 0 ) {
-        ifmin=0;
-        ifmax=0;
-        fstep=0.0;
-        f0=*f1;
-    }
-    if( mode == 1 ) {
-        lagmin=*shift1;
-        lagmax=*shift1;
-        ifmin=-5;
-        ifmax=5;
-        f0=*f1;
-    }
-    if( mode == 2 ) {
-        lagmin=*shift1;
-        lagmax=*shift1;
-        ifmin=0;
-        ifmax=0;
-        f0=*f1;
-    }
-
-    twopidt=2*pi*dt;
-    for(ifreq=ifmin; ifreq<=ifmax; ifreq++) {
+    if( mode == 0 ) {ifmin=0; ifmax=0; fstep=0.0; f0=*f1;}
+    if( mode == 1 ) {lagmin=*shift1;lagmax=*shift1;ifmin=-5;ifmax=5;f0=*f1;}
+    if( mode == 2 ) {lagmin=*shift1;lagmax=*shift1;ifmin=0;ifmax=0;f0=*f1;}
+    
+    for(int ifreq=ifmin; ifreq<=ifmax; ifreq++) {
         f0=*f1+ifreq*fstep;
         for(lag=lagmin; lag<=lagmax; lag=lag+lagstep) {
             ss=0.0;
             totp=0.0;
-            for (i=0; i<162; i++) {
+            for (int i=0; i<162; i++) {
                 fp = f0 + ((float)*drift1/2.0)*((float)i-81.0)/81.0;
                 if( i==0 || (fp != fplast) ) {  // only calculate sin/cos if necessary
-                    dphi0=twopidt*(fp-1.5*df);
-                    cdphi0=cos(dphi0);
-                    sdphi0=sin(dphi0);
-
-                    dphi1=twopidt*(fp-0.5*df);
-                    cdphi1=cos(dphi1);
-                    sdphi1=sin(dphi1);
-
-                    dphi2=twopidt*(fp+0.5*df);
-                    cdphi2=cos(dphi2);
-                    sdphi2=sin(dphi2);
-
-                    dphi3=twopidt*(fp+1.5*df);
-                    cdphi3=cos(dphi3);
-                    sdphi3=sin(dphi3);
-
-                    c0[0]=1;
-                    s0[0]=0;
-                    c1[0]=1;
-                    s1[0]=0;
-                    c2[0]=1;
-                    s2[0]=0;
-                    c3[0]=1;
-                    s3[0]=0;
-
-                    for (j=1; j<256; j++) {
+                    dphi0=TWOPIDT*(fp-1.5*DF);
+                    cdphi0=cosf(dphi0);
+                    sdphi0=sinf(dphi0);
+                    
+                    dphi1=TWOPIDT*(fp-0.5*DF);
+                    cdphi1=cosf(dphi1);
+                    sdphi1=sinf(dphi1);
+                    
+                    dphi2=TWOPIDT*(fp+0.5*DF);
+                    cdphi2=cosf(dphi2);
+                    sdphi2=sinf(dphi2);
+                    
+                    dphi3=TWOPIDT*(fp+1.5*DF);
+                    cdphi3=cosf(dphi3);
+                    sdphi3=sinf(dphi3);
+                    
+                    c0[0]=1; s0[0]=0;
+                    c1[0]=1; s1[0]=0;
+                    c2[0]=1; s2[0]=0;
+                    c3[0]=1; s3[0]=0;
+                    
+                    for (int j=1; j<256; j++) {
                         c0[j]=c0[j-1]*cdphi0 - s0[j-1]*sdphi0;
                         s0[j]=c0[j-1]*sdphi0 + s0[j-1]*cdphi0;
                         c1[j]=c1[j-1]*cdphi1 - s1[j-1]*sdphi1;
@@ -163,18 +145,14 @@ void sync_and_demodulate(double *id, double *qd, long np,
                     }
                     fplast = fp;
                 }
-
-                i0[i]=0.0;
-                q0[i]=0.0;
-                i1[i]=0.0;
-                q1[i]=0.0;
-                i2[i]=0.0;
-                q2[i]=0.0;
-                i3[i]=0.0;
-                q3[i]=0.0;
-
-                for (j=0; j<256; j++) {
-                    k=lag+i*256+j;
+                
+                i0[i]=0.0; q0[i]=0.0;
+                i1[i]=0.0; q1[i]=0.0;
+                i2[i]=0.0; q2[i]=0.0;
+                i3[i]=0.0; q3[i]=0.0;
+                
+                for (int j=0; j<256; j++) {
+                    int k=lag+i*256+j;
                     if( (k>0) & (k<np) ) {
                         i0[i]=i0[i] + id[k]*c0[j] + qd[k]*s0[j];
                         q0[i]=q0[i] - id[k]*s0[j] + qd[k]*c0[j];
@@ -190,12 +168,12 @@ void sync_and_demodulate(double *id, double *qd, long np,
                 p1=i1[i]*i1[i] + q1[i]*q1[i];
                 p2=i2[i]*i2[i] + q2[i]*q2[i];
                 p3=i3[i]*i3[i] + q3[i]*q3[i];
-
-                p0=sqrt(p0);
-                p1=sqrt(p1);
-                p2=sqrt(p2);
-                p3=sqrt(p3);
-
+                
+                p0=sqrtf(p0);
+                p1=sqrtf(p1);
+                p2=sqrtf(p2);
+                p3=sqrtf(p3);
+                
                 totp=totp+p0+p1+p2+p3;
                 cmet=(p1+p3)-(p0+p2);
                 ss=ss+cmet*(2*pr3[i]-1);
@@ -207,7 +185,7 @@ void sync_and_demodulate(double *id, double *qd, long np,
                     }
                 }
             }
-
+            
             if( ss/totp > syncmax ) {          //Save best parameters
                 syncmax=ss/totp;
                 best_shift=lag;
@@ -215,22 +193,22 @@ void sync_and_demodulate(double *id, double *qd, long np,
             }
         } // lag loop
     } //freq loop
-
+    
     if( mode <=1 ) {                       //Send best params back to caller
         *sync=syncmax;
         *shift1=best_shift;
         *f1=fbest;
         return;
     }
-
+    
     if( mode == 2 ) {
         *sync=syncmax;
-        for (i=0; i<162; i++) {              //Normalize the soft symbols
+        for (int i=0; i<162; i++) {              //Normalize the soft symbols
             fsum=fsum+fsymb[i]/162.0;
             f2sum=f2sum+fsymb[i]*fsymb[i]/162.0;
         }
-        fac=sqrt(f2sum-fsum*fsum);
-        for (i=0; i<162; i++) {
+        fac=sqrtf(f2sum-fsum*fsum);
+        for (int i=0; i<162; i++) {
             fsymb[i]=symfac*fsymb[i]/fac;
             if( fsymb[i] > 127) fsymb[i]=127.0;
             if( fsymb[i] < -128 ) fsymb[i]=-128.0;
@@ -242,32 +220,28 @@ void sync_and_demodulate(double *id, double *qd, long np,
 }
 
 
+
 /***************************************************************************
  symbol-by-symbol signal subtraction
  ****************************************************************************/
-void subtract_signal(double *id, double *qd, long np,
+void subtract_signal(float *id, float *qd, long np,
                      float f0, int shift0, float drift0, unsigned char* channel_symbols) {
-    float dt=1.0/375.0, df=375.0/256.0;
-    int i, j, k;
-    double pi=4.*atan(1.0),twopidt, fp;
 
-    double i0,q0;
-    double c0[256],s0[256];
-    double dphi, cdphi, sdphi;
+    float i0,q0;
+    float c0[256],s0[256];
+    float dphi, cdphi, sdphi;
 
-    twopidt=2*pi*dt;
+    for (int i=0; i<162; i++) {
+        float fp = f0 + ((float)drift0/2.0)*((float)i-81.0)/81.0;
 
-    for (i=0; i<162; i++) {
-        fp = f0 + ((float)drift0/2.0)*((float)i-81.0)/81.0;
-
-        dphi=twopidt*(fp+((float)channel_symbols[i]-1.5)*df);
-        cdphi=cos(dphi);
-        sdphi=sin(dphi);
+        dphi=TWOPIDT*(fp+((float)channel_symbols[i]-1.5)*DF);
+        cdphi=cosf(dphi);
+        sdphi=sinf(dphi);
 
         c0[0]=1;
         s0[0]=0;
 
-        for (j=1; j<256; j++) {
+        for (int j=1; j<256; j++) {
             c0[j]=c0[j-1]*cdphi - s0[j-1]*sdphi;
             s0[j]=c0[j-1]*sdphi + s0[j-1]*cdphi;
         }
@@ -275,8 +249,8 @@ void subtract_signal(double *id, double *qd, long np,
         i0=0.0;
         q0=0.0;
 
-        for (j=0; j<256; j++) {
-            k=shift0+i*256+j;
+        for (int j=0; j<256; j++) {
+            int k=shift0+i*256+j;
             if( (k>0) & (k<np) ) {
                 i0=i0 + id[k]*c0[j] + qd[k]*s0[j];
                 q0=q0 - id[k]*s0[j] + qd[k]*c0[j];
@@ -289,8 +263,8 @@ void subtract_signal(double *id, double *qd, long np,
         i0=i0/256.0; //will be wrong for partial symbols at the edges...
         q0=q0/256.0;
 
-        for (j=0; j<256; j++) {
-            k=shift0+i*256+j;
+        for (int j=0; j<256; j++) {
+            int k=shift0+i*256+j;
             if( (k>0) & (k<np) ) {
                 id[k]=id[k]- (i0*c0[j] - q0*s0[j]);
                 qd[k]=qd[k]- (q0*c0[j] + i0*s0[j]);
@@ -304,31 +278,30 @@ void subtract_signal(double *id, double *qd, long np,
 /******************************************************************************
  Fully coherent signal subtraction
  *******************************************************************************/
-void subtract_signal2(double *id, double *qd, long np,
+void subtract_signal2(float *id, float *qd, long np,
                       float f0, int shift0, float drift0, unsigned char* channel_symbols) {
-    double dt=1.0/375.0, df=375.0/256.0;
-    double pi=4.*atan(1.0), twopidt, phi=0, dphi, cs;
-    int i, j, k, ii, nsym=162, nspersym=256,  nfilt=256; //nfilt must be even number.
+
+    float phi=0, dphi, cs;
+    int nsym=162, nspersym=256,  nfilt=256; //nfilt must be even number.
     int nsig=nsym*nspersym;
     int nc2=45000;
 
-    double *refi, *refq, *ci, *cq, *cfi, *cfq;
+    float *refi, *refq, *ci, *cq, *cfi, *cfq;
 
-    refi=malloc(sizeof(double)*nc2);
-    refq=malloc(sizeof(double)*nc2);
-    ci=malloc(sizeof(double)*nc2);
-    cq=malloc(sizeof(double)*nc2);
-    cfi=malloc(sizeof(double)*nc2);
-    cfq=malloc(sizeof(double)*nc2);
+    refi=malloc(sizeof(float)*nc2);
+    refq=malloc(sizeof(float)*nc2);
+    ci=malloc(sizeof(float)*nc2);
+    cq=malloc(sizeof(float)*nc2);
+    cfi=malloc(sizeof(float)*nc2);
+    cfq=malloc(sizeof(float)*nc2);
 
-    memset(refi,0,sizeof(double)*nc2);
-    memset(refq,0,sizeof(double)*nc2);
-    memset(ci,0,sizeof(double)*nc2);
-    memset(cq,0,sizeof(double)*nc2);
-    memset(cfi,0,sizeof(double)*nc2);
-    memset(cfq,0,sizeof(double)*nc2);
+    memset(refi,0,sizeof(float)*nc2);
+    memset(refq,0,sizeof(float)*nc2);
+    memset(ci,0,sizeof(float)*nc2);
+    memset(cq,0,sizeof(float)*nc2);
+    memset(cfi,0,sizeof(float)*nc2);
+    memset(cfq,0,sizeof(float)*nc2);
 
-    twopidt=2.0*pi*dt;
 
     /******************************************************************************
      Measured signal:                    s(t)=a(t)*exp( j*theta(t) )
@@ -340,20 +313,18 @@ void subtract_signal2(double *id, double *qd, long np,
 
     // create reference wspr signal vector, centered on f0.
     //
-    for (i=0; i<nsym; i++) {
+    for (int i=0; i<nsym; i++) {
 
-        cs=(double)channel_symbols[i];
+        cs=(float)channel_symbols[i];
 
-        dphi=twopidt*
-             (
-                 f0 + ((float)drift0/2.0)*((float)i-(float)nsym/2.0)/((float)nsym/2.0)
-                 + (cs-1.5)*df
-             );
+        dphi=TWOPIDT* ( f0 + 
+                        ((float)drift0/2.0)*((float)i-(float)nsym/2.0)/((float)nsym/2.0) + 
+                        (cs-1.5)*DF  );
 
-        for ( j=0; j<nspersym; j++ ) {
-            ii=nspersym*i+j;
-            refi[ii]=refi[ii]+cos(phi); //cannot precompute sin/cos because dphi is changing
-            refq[ii]=refq[ii]+sin(phi);
+        for (int j=0; j<nspersym; j++ ) {
+            int ii=nspersym*i+j;
+            refi[ii]=refi[ii]+cosf(phi); //cannot precompute sin/cos because dphi is changing
+            refq[ii]=refq[ii]+sinf(phi);
             phi=phi+dphi;
         }
     }
@@ -363,8 +334,8 @@ void subtract_signal2(double *id, double *qd, long np,
     // beginning of first symbol in received data is at shift0.
     // filter transient lasts nfilt samples
     // leave nfilt zeros as a pad at the beginning of the unfiltered reference signal
-    for (i=0; i<nsym*nspersym; i++) {
-        k=shift0+i;
+    for (int i=0; i<nsym*nspersym; i++) {
+        int k=shift0+i;
         if( (k>0) & (k<np) ) {
             ci[i+nfilt] = id[k]*refi[i] + qd[k]*refq[i];
             cq[i+nfilt] = qd[k]*refi[i] - id[k]*refq[i];
@@ -372,24 +343,24 @@ void subtract_signal2(double *id, double *qd, long np,
     }
 
     //quick and dirty filter - may want to do better
-    double w[nfilt], norm=0, partialsum[nfilt];
-    memset(partialsum,0,sizeof(double)*nfilt);
-    for (i=0; i<nfilt; i++) {
-        w[i]=sin(pi*(float)i/(float)(nfilt-1));
+    float w[nfilt], norm=0, partialsum[nfilt];
+    memset(partialsum,0,sizeof(float)*nfilt);
+    for (int i=0; i<nfilt; i++) {
+        w[i]=sinf(M_PI*(float)i/(float)(nfilt-1));
         norm=norm+w[i];
     }
-    for (i=0; i<nfilt; i++) {
+    for (int i=0; i<nfilt; i++) {
         w[i]=w[i]/norm;
     }
-    for (i=1; i<nfilt; i++) {
+    for (int i=1; i<nfilt; i++) {
         partialsum[i]=partialsum[i-1]+w[i];
     }
 
     // LPF
-    for (i=nfilt/2; i<45000-nfilt/2; i++) {
+    for (int i=nfilt/2; i<45000-nfilt/2; i++) {
         cfi[i]=0.0;
         cfq[i]=0.0;
-        for (j=0; j<nfilt; j++) {
+        for (int j=0; j<nfilt; j++) {
             cfi[i]=cfi[i]+w[j]*ci[i-nfilt/2+j];
             cfq[i]=cfq[i]+w[j]*cq[i-nfilt/2+j];
         }
@@ -399,7 +370,7 @@ void subtract_signal2(double *id, double *qd, long np,
     // (ci+j*cq)(refi+j*refq)=(ci*refi-cq*refq)+j(ci*refq)+cq*refi)
     // beginning of first symbol in reference signal is at i=nfilt
     // beginning of first symbol in received data is at shift0.
-    for (i=0; i<nsig; i++) {
+    for (int i=0; i<nsig; i++) {
         if( i<nfilt/2 ) {        // take care of the end effect (LPF step response) here
             norm=partialsum[nfilt/2+i];
         } else if( i>(nsig-1-nfilt/2) ) {
@@ -407,8 +378,8 @@ void subtract_signal2(double *id, double *qd, long np,
         } else {
             norm=1.0;
         }
-        k=shift0+i;
-        j=i+nfilt;
+        int k=shift0+i;
+        int j=i+nfilt;
         if( (k>0) & (k<np) ) {
             id[k]=id[k] - (cfi[j]*refi[i]-cfq[j]*refq[i])/norm;
             qd[k]=qd[k] - (cfi[j]*refq[i]+cfq[j]*refi[i])/norm;
@@ -426,8 +397,9 @@ void subtract_signal2(double *id, double *qd, long np,
 }
 
 
+
 //***************************************************************************
-int wspr_decode(double *idat, double *qdat, unsigned int npoints, struct decoder_options options) {
+int wspr_decode(float *idat, float *qdat, unsigned int npoints, struct decoder_options options) {
     int i,j,k;
     unsigned char *symbols, *decdata;
     signed char message[]= {-9,13,-35,123,57,-39,64,0,0,0,0};
@@ -501,7 +473,7 @@ int wspr_decode(double *idat, double *qdat, unsigned int npoints, struct decoder
     double minrms=52.0 * (symfac/64.0);      //Final test for plausible decoding
     delta=60;                                //Fano threshold step
 
-    fftw_complex *fftin, *fftout;
+    fftwf_complex *fftin, *fftout;
 
 #include "./metric_tables.c"
 
@@ -533,15 +505,15 @@ int wspr_decode(double *idat, double *qdat, unsigned int npoints, struct decoder
     strncat(timer_fname,"/wspr_timer.out",20);
     strncat(hash_fname,"/hashtable.txt",20);
     if ((fp_fftw_wisdom_file = fopen(wisdom_fname, "r"))) {  //Open FFTW wisdom
-        fftw_import_wisdom_from_file(fp_fftw_wisdom_file);
+        fftwf_import_wisdom_from_file(fp_fftw_wisdom_file);
         fclose(fp_fftw_wisdom_file);
     }
 
     // Do windowed ffts over 2 symbols, stepped by half symbols
     int nffts=4*floor(npoints/512)-1;
-    fftin=(fftw_complex*) fftw_malloc(sizeof(fftw_complex)*512);
-    fftout=(fftw_complex*) fftw_malloc(sizeof(fftw_complex)*512);
-    PLAN3 = fftw_plan_dft_1d(512, fftin, fftout, FFTW_FORWARD, PATIENCE);
+    fftin=(fftwf_complex*) fftwf_malloc(sizeof(fftwf_complex)*512);
+    fftout=(fftwf_complex*) fftwf_malloc(sizeof(fftwf_complex)*512);
+    PLAN3 = fftwf_plan_dft_1d(512, fftin, fftout, FFTW_FORWARD, PATIENCE);
 
     float ps[512][nffts];
     float w[512];
@@ -579,7 +551,7 @@ int wspr_decode(double *idat, double *qdat, unsigned int npoints, struct decoder
                 fftin[j][0]=idat[k] * w[j];
                 fftin[j][1]=qdat[k] * w[j];
             }
-            fftw_execute(PLAN3);
+            fftwf_execute(PLAN3);
             for (j=0; j<512; j++ ) {
                 k=j+256;
                 if( k>511 )
@@ -947,17 +919,17 @@ int wspr_decode(double *idat, double *qdat, unsigned int npoints, struct decoder
         }
     }
 
-    fftw_free(fftin);
-    fftw_free(fftout);
+    fftwf_free(fftin);
+    fftwf_free(fftout);
 
     if ((fp_fftw_wisdom_file = fopen(wisdom_fname, "w"))) {
-        fftw_export_wisdom_to_file(fp_fftw_wisdom_file);
+        fftwf_export_wisdom_to_file(fp_fftw_wisdom_file);
         fclose(fp_fftw_wisdom_file);
     }
 
-    fftw_destroy_plan(PLAN1);
-    fftw_destroy_plan(PLAN2);
-    fftw_destroy_plan(PLAN3);
+    fftwf_destroy_plan(PLAN1);
+    fftwf_destroy_plan(PLAN2);
+    fftwf_destroy_plan(PLAN3);
 
     if( usehashtable ) {
         fhash=fopen(hash_fname,"w");
