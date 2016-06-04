@@ -54,7 +54,7 @@
 */
 
 
-#define CAPTURE_LENGHT    118
+#define CAPTURE_LENGHT    116
 #define MAX_SAMPLES_SIZE  45000    // (120 sec max @ 375sps)
 
 

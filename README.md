@@ -11,7 +11,7 @@ This non-interactive application allows automatic reporting of WSPR spots on WSP
 - Loop...
 
 *Tested with Raspbian GNU Linux, using a RaspberryPi 2*
-(67% of one core @1GHz)
+(18% of one core @1GHz (rx & decimation), and a burst during 10s on the second core)
 
 <h3>Howto :</h3>
 1. Install a Linux compatible disto on your device (ex. Raspbian for RaspberryPi)
@@ -19,7 +19,7 @@ This non-interactive application allows automatic reporting of WSPR spots on WSP
    ex: sudo apt-get install build-essential cmake libfftw3-dev libusb-1.0-0-dev curl libcurl4-gnutls-dev ntp 
 3. Install airspy library : http://github.com/airspy/host
 4. Install airspy-wsprd (this app) : http://github.com/Guenael/airspy-wsrd
-   make
+   Use a sample "make"
 5. Enjoy it with ./airspy_wsprd <your options>
 
 <h3>Tips (for Raspberry Pi):</h3>
