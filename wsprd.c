@@ -81,7 +81,7 @@ void sync_and_demodulate(float *id, float *qd, long np,
      *        2: no frequency or time lag search. calculate soft-decision   *
      *           symbols using passed frequency and shift.                  *
      ************************************************************************/
-    
+
     float fbest=0.0;
     float f0=0.0,fp,ss;
     int lag;
@@ -89,19 +89,36 @@ void sync_and_demodulate(float *id, float *qd, long np,
     float i0[162],q0[162],i1[162],q1[162],i2[162],q2[162],i3[162],q3[162];
     float p0,p1,p2,p3,cmet,totp,syncmax,fac;
     float c0[256],s0[256],c1[256],s1[256],c2[256],s2[256],c3[256],s3[256];
-    float dphi0, cdphi0, sdphi0, 
-          dphi1, cdphi1, sdphi1, 
+    float dphi0, cdphi0, sdphi0,
+          dphi1, cdphi1, sdphi1,
           dphi2, cdphi2, sdphi2,
           dphi3, cdphi3, sdphi3;
     float fsum=0.0, f2sum=0.0, fsymb[162];
     int best_shift = 0;
     int ifmin=0, ifmax=0;
-    
+
     syncmax=-1e30;
-    if( mode == 0 ) {ifmin=0; ifmax=0; fstep=0.0; f0=*f1;}
-    if( mode == 1 ) {lagmin=*shift1;lagmax=*shift1;ifmin=-5;ifmax=5;f0=*f1;}
-    if( mode == 2 ) {lagmin=*shift1;lagmax=*shift1;ifmin=0;ifmax=0;f0=*f1;}
-    
+    if( mode == 0 ) {
+        ifmin=0;
+        ifmax=0;
+        fstep=0.0;
+        f0=*f1;
+    }
+    if( mode == 1 ) {
+        lagmin=*shift1;
+        lagmax=*shift1;
+        ifmin=-5;
+        ifmax=5;
+        f0=*f1;
+    }
+    if( mode == 2 ) {
+        lagmin=*shift1;
+        lagmax=*shift1;
+        ifmin=0;
+        ifmax=0;
+        f0=*f1;
+    }
+
     for(int ifreq=ifmin; ifreq<=ifmax; ifreq++) {
         f0=*f1+ifreq*fstep;
         for(lag=lagmin; lag<=lagmax; lag=lag+lagstep) {
@@ -113,24 +130,28 @@ void sync_and_demodulate(float *id, float *qd, long np,
                     dphi0=TWOPIDT*(fp-1.5*DF);
                     cdphi0=cosf(dphi0);
                     sdphi0=sinf(dphi0);
-                    
+
                     dphi1=TWOPIDT*(fp-0.5*DF);
                     cdphi1=cosf(dphi1);
                     sdphi1=sinf(dphi1);
-                    
+
                     dphi2=TWOPIDT*(fp+0.5*DF);
                     cdphi2=cosf(dphi2);
                     sdphi2=sinf(dphi2);
-                    
+
                     dphi3=TWOPIDT*(fp+1.5*DF);
                     cdphi3=cosf(dphi3);
                     sdphi3=sinf(dphi3);
-                    
-                    c0[0]=1; s0[0]=0;
-                    c1[0]=1; s1[0]=0;
-                    c2[0]=1; s2[0]=0;
-                    c3[0]=1; s3[0]=0;
-                    
+
+                    c0[0]=1;
+                    s0[0]=0;
+                    c1[0]=1;
+                    s1[0]=0;
+                    c2[0]=1;
+                    s2[0]=0;
+                    c3[0]=1;
+                    s3[0]=0;
+
                     for (int j=1; j<256; j++) {
                         c0[j]=c0[j-1]*cdphi0 - s0[j-1]*sdphi0;
                         s0[j]=c0[j-1]*sdphi0 + s0[j-1]*cdphi0;
@@ -143,12 +164,16 @@ void sync_and_demodulate(float *id, float *qd, long np,
                     }
                     fplast = fp;
                 }
-                
-                i0[i]=0.0; q0[i]=0.0;
-                i1[i]=0.0; q1[i]=0.0;
-                i2[i]=0.0; q2[i]=0.0;
-                i3[i]=0.0; q3[i]=0.0;
-                
+
+                i0[i]=0.0;
+                q0[i]=0.0;
+                i1[i]=0.0;
+                q1[i]=0.0;
+                i2[i]=0.0;
+                q2[i]=0.0;
+                i3[i]=0.0;
+                q3[i]=0.0;
+
                 for (int j=0; j<256; j++) {
                     int k=lag+i*256+j;
                     if( (k>0) & (k<np) ) {
@@ -166,12 +191,12 @@ void sync_and_demodulate(float *id, float *qd, long np,
                 p1=i1[i]*i1[i] + q1[i]*q1[i];
                 p2=i2[i]*i2[i] + q2[i]*q2[i];
                 p3=i3[i]*i3[i] + q3[i]*q3[i];
-                
+
                 p0=sqrtf(p0);
                 p1=sqrtf(p1);
                 p2=sqrtf(p2);
                 p3=sqrtf(p3);
-                
+
                 totp=totp+p0+p1+p2+p3;
                 cmet=(p1+p3)-(p0+p2);
                 ss=ss+cmet*(2*pr3[i]-1);
@@ -183,7 +208,7 @@ void sync_and_demodulate(float *id, float *qd, long np,
                     }
                 }
             }
-            
+
             if( ss/totp > syncmax ) {          //Save best parameters
                 syncmax=ss/totp;
                 best_shift=lag;
@@ -191,14 +216,14 @@ void sync_and_demodulate(float *id, float *qd, long np,
             }
         } // lag loop
     } //freq loop
-    
+
     if( mode <=1 ) {                       //Send best params back to caller
         *sync=syncmax;
         *shift1=best_shift;
         *f1=fbest;
         return;
     }
-    
+
     if( mode == 2 ) {
         *sync=syncmax;
         for (int i=0; i<162; i++) {              //Normalize the soft symbols
@@ -314,8 +339,8 @@ void subtract_signal2(float *id, float *qd, long np,
 
         cs=(float)channel_symbols[i];
 
-        dphi=TWOPIDT* ( f0 + 
-                        ((float)drift0/2.0)*((float)i-(float)nsym/2.0)/((float)nsym/2.0) + 
+        dphi=TWOPIDT* ( f0 +
+                        ((float)drift0/2.0)*((float)i-(float)nsym/2.0)/((float)nsym/2.0) +
                         (cs-1.5)*DF  );
 
         for (int j=0; j<nspersym; j++ ) {
@@ -396,8 +421,8 @@ void subtract_signal2(float *id, float *qd, long np,
 
 
 //***************************************************************************
-int wspr_decode(float *idat, float *qdat, unsigned int npoints, 
-    struct decoder_options options, struct decoder_results *decodes, int *n_results) {
+int wspr_decode(float *idat, float *qdat, unsigned int npoints,
+                struct decoder_options options, struct decoder_results *decodes, int *n_results) {
 
     int i,j,k;
     unsigned char *symbols, *decdata;
@@ -439,7 +464,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints,
     char allcalls[100][13];
     memset(allfreqs,0,sizeof(float)*100);
     memset(allcalls,0,sizeof(char)*100*13);
-  
+
 
     // Parameters used for performance-tuning:
     maxcycles=10000;                         //Fano timeout limit
@@ -537,7 +562,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints,
         }
 
         // Compute average spectrum
-        float psavg[512]={0};
+        float psavg[512]= {0};
         //memset(psavg,0.0, sizeof(float)*512);
         for (i=0; i<nffts; i++) {
             for (j=0; j<512; j++) {

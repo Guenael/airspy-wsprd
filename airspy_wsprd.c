@@ -59,7 +59,7 @@
 
 
 /* Global declaration for these structs */
-struct receiver_state   rx_state;         
+struct receiver_state   rx_state;
 struct receiver_options rx_options;
 struct decoder_options  dec_options;
 struct decoder_results  dec_results[50];
@@ -113,8 +113,8 @@ int rx_callback(airspy_transfer_t* transfer) {
         sigIn[i+7] = tmp;
     }
 
-    /* Simple square window decimator 
-       (could be not perfect in time for some sampling rate. 
+    /* Simple square window decimator
+       (could be not perfect in time for some sampling rate.
        Ex: AirSpy vs AirSpy Mini, but works fine in practice)
     */
     uint32_t samples_to_write = transfer->sample_count / 2;  // IQ take 2 samples
@@ -135,7 +135,7 @@ int rx_callback(airspy_transfer_t* transfer) {
         }
 
         /* Lock the buffer during writing */     // Overkill ?!
-        pthread_rwlock_wrlock(&dec.rw);  
+        pthread_rwlock_wrlock(&dec.rw);
         rx_state.idat[rx_state.iq_index] = (float)rx_state.I_acc;
         rx_state.qdat[rx_state.iq_index] = (float)rx_state.Q_acc;
         pthread_rwlock_unlock(&dec.rw);
@@ -152,8 +152,8 @@ int rx_callback(airspy_transfer_t* transfer) {
 
 
         /* Send a signal to the other thread to start the decoding */
-        pthread_mutex_lock(&dec.ready_mutex); 
-        pthread_cond_signal(&dec.ready_cond); 
+        pthread_mutex_lock(&dec.ready_mutex);
+        pthread_cond_signal(&dec.ready_cond);
         pthread_mutex_unlock(&dec.ready_mutex);
     }
     return 0;
@@ -193,14 +193,14 @@ void postSpots(int n_results) {
 static void *wsprDecoder(void *arg) {
     //struct decoder_state *d = arg; // FIXME, besoin du arg avec struc globals ??
 
-    static float iSamples[MAX_SAMPLES_SIZE]={0};
-    static float qSamples[MAX_SAMPLES_SIZE]={0};
+    static float iSamples[MAX_SAMPLES_SIZE]= {0};
+    static float qSamples[MAX_SAMPLES_SIZE]= {0};
     static uint32_t samples_len;
     int n_results=0;
 
     while (!rx_state.exit_flag) {
-        pthread_mutex_lock(&dec.ready_mutex); 
-        pthread_cond_wait(&dec.ready_cond, &dec.ready_mutex); 
+        pthread_mutex_lock(&dec.ready_mutex);
+        pthread_cond_wait(&dec.ready_cond, &dec.ready_mutex);
         pthread_mutex_unlock(&dec.ready_mutex);
 
         if(rx_state.exit_flag)  // Abord case, final sig
@@ -231,18 +231,18 @@ double atofs(char *s) {
     last = s[len-1];
     s[len-1] = '\0';
     switch (last) {
-        case 'g':
-        case 'G':
-            suff *= 1e3;
-        case 'm':
-        case 'M':
-            suff *= 1e3;
-        case 'k':
-        case 'K':
-            suff *= 1e3;
-            suff *= atof(s);
-            s[len-1] = last;
-            return suff;
+    case 'g':
+    case 'G':
+        suff *= 1e3;
+    case 'm':
+    case 'M':
+        suff *= 1e3;
+    case 'k':
+    case 'K':
+        suff *= 1e3;
+        suff *= atof(s);
+        s[len-1] = last;
+        return suff;
     }
     s[len-1] = last;
     return atof(s);
@@ -406,7 +406,7 @@ int main(int argc, char** argv) {
             dec_options.quickmode = 1;
         case 'S':
             dec_options.subtraction = 0; //single pass mode (same as original wsprd)
-            dec_options.npasses = 1;              
+            dec_options.npasses = 1;
         case 'W':
             dec_options.fmin = -150.0;
             dec_options.fmax = 150.0;
@@ -520,11 +520,11 @@ int main(int argc, char** argv) {
 
     result = airspy_board_partid_serialno_read(device, &readSerial);
     if (result != AIRSPY_SUCCESS) {
-            fprintf(stderr, "airspy_board_partid_serialno_read() failed: %s (%d)\n",
+        fprintf(stderr, "airspy_board_partid_serialno_read() failed: %s (%d)\n",
                 airspy_error_name(result), result);
-            airspy_close(device);
-            airspy_exit();
-            return EXIT_FAILURE;
+        airspy_close(device);
+        airspy_exit();
+        return EXIT_FAILURE;
     }
 
     /* Sampling run non-stop, for stability and sample are dropped or stored */
@@ -582,8 +582,8 @@ int main(int argc, char** argv) {
         // Start to store the samples
         initSampleStorage();
 
-        while( (airspy_is_streaming(device) == AIRSPY_TRUE) && 
-               (rx_state.exit_flag == false) && (rx_state.record_flag == true) ) {
+        while( (airspy_is_streaming(device) == AIRSPY_TRUE) &&
+                (rx_state.exit_flag == false) && (rx_state.record_flag == true) ) {
             sleep(1);
         }
     }
@@ -604,8 +604,8 @@ int main(int argc, char** argv) {
     printf("Bye!\n");
 
     /* TEST Free the thread join it */
-    pthread_mutex_lock(&dec.ready_mutex); 
-    pthread_cond_signal(&dec.ready_cond); 
+    pthread_mutex_lock(&dec.ready_mutex);
+    pthread_cond_signal(&dec.ready_cond);
     pthread_mutex_unlock(&dec.ready_mutex);
     pthread_join(dec.thread, NULL);
 
@@ -613,7 +613,7 @@ int main(int argc, char** argv) {
     pthread_rwlock_destroy(&dec.rw);
     pthread_cond_destroy(&dec.ready_cond);
     pthread_mutex_destroy(&dec.ready_mutex);
-    pthread_exit(NULL);  
+    pthread_exit(NULL);
 
     return exit_code;
 }
