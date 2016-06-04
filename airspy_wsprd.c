@@ -320,7 +320,7 @@ void sigint_callback_handler(int signum) {
 void usage(void) {
     fprintf(stderr,
             "airspy_wsprd, a simple WSPR daemon for AirSpy receivers\n\n"
-            "Use:\tairspy_wsprd -f frequency -c callsign -l locator [options]\n"
+            "Use:\tairspy_wsprd -f frequency -c callsign -g locator [options]\n"
             "\t-f dial frequency [(,k,M)Hz], check http://wsprnet.org/ for freq.\n"
             "\t-c your callsign (12 chars max)\n"
             "\t-g your locator grid (6 chars max)\n"
