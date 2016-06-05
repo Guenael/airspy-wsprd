@@ -439,7 +439,7 @@ int main(int argc, char** argv) {
     /* Calcule decimation rate & frequency offset for fs/4 shift */
     rx_options.fs4 = rx_options.rate / 4;
     rx_options.downsampling = (uint32_t)ceil((double)rx_options.rate / 375.0);
-    rx_options.reelfreq = rx_options.dialfreq + rx_options.shift;
+    rx_options.realfreq = rx_options.dialfreq + rx_options.shift;
 
     /* If something goes wrong... */
     signal(SIGINT, &sigint_callback_handler);
@@ -510,7 +510,7 @@ int main(int argc, char** argv) {
         printf("airspy_set_lna_gain() failed: %s (%d)\n", airspy_error_name(result), result);
     }
 
-    result = airspy_set_freq(device, rx_options.reelfreq + rx_options.fs4 + 1500);  // Dial + offset + 1500Hz
+    result = airspy_set_freq(device, rx_options.realfreq + rx_options.fs4 + 1500);  // Dial + offset + 1500Hz
     if( result != AIRSPY_SUCCESS ) {
         printf("airspy_set_freq() failed: %s (%d)\n", airspy_error_name(result), result);
         airspy_close(device);
@@ -543,7 +543,7 @@ int main(int argc, char** argv) {
     printf("Starting airspy-wsprd (%04d-%02d-%02d, %02d:%02dz) -- Version 0.1\n",
            gtm->tm_year + 1900, gtm->tm_mon + 1, gtm->tm_mday, gtm->tm_hour, gtm->tm_min);
     printf("  Dial freq. : %d Hz\n", rx_options.dialfreq);
-    printf("  Reel freq. : %d Hz\n", rx_options.reelfreq);
+    printf("  Real freq. : %d Hz\n", rx_options.realfreq);
     printf("  Rate       : %d Hz\n", rx_options.rate);
     printf("  Callsign   : %s\n", dec_options.rcall);
     printf("  Locator    : %s\n", dec_options.rloc);
