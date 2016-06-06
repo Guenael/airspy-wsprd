@@ -30,3 +30,4 @@ This non-interactive application allows automatic reporting of WSPR spots on WSP
 <h3>TODO:</h3>
 - Port to rtl-sdr
 - Port to GnuRadio : gr-wspr
+- Rewrite decimation part (using CIC)
