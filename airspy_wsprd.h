@@ -64,6 +64,7 @@ struct receiver_options {
     uint32_t mixerGain;
     uint32_t vgaGain;
     uint32_t bias;
+    uint32_t packing;
     int32_t  shift;
     uint32_t rate;
     uint32_t fs4;

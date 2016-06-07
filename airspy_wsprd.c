@@ -307,6 +307,7 @@ void initrx_options() {
     rx_options.shift = 0;
     rx_options.rate = 2500000;
     rx_options.serialnumber = 0;
+    rx_options.packing = 0;
 }
 
 
@@ -321,22 +322,24 @@ void usage(void) {
     fprintf(stderr,
             "airspy_wsprd, a simple WSPR daemon for AirSpy receivers\n\n"
             "Use:\tairspy_wsprd -f frequency -c callsign -g locator [options]\n"
-            "\t-f dial frequency [(,k,M)Hz], check http://wsprnet.org/ for freq.\n"
+            "\t-f dial frequency [(,k,M) Hz], check http://wsprnet.org/ for freq.\n"
             "\t-c your callsign (12 chars max)\n"
             "\t-g your locator grid (6 chars max)\n"
             "Receiver extra options:\n"
-            "\t[-l LNA gain [0-14] (default: 3)]\n"
-            "\t[-m MIXER gain [0-15] (default: 5)]\n"
-            "\t[-v VGA gain [0-15] (default: 5)]\n"
-            "\t[-b set Bias Tee[0-1], (default: 0 disabled)]\n"
-            "\t[-r sampling rate[2.5M, 3M, 6M, 10M], (default: 2.5M)]\n"
-            "\t[-p frequency correction (default: 0)]\n"
-            "\t[-s S/N]: Open device with specified 64bits serial number\n"
+            "\t-l LNA gain [0-14] (default: 3)\n"
+            "\t-m MIXER gain [0-15] (default: 5)\n"
+            "\t-v VGA gain [0-15] (default: 5)\n"
+            "\t-b set Bias Tee [0-1], (default: 0 disabled)\n"
+            "\t-r sampling rate [2.5M, 3M, 6M, 10M], (default: 2.5M)\n"
+            "\t-p frequency correction (default: 0)\n"
+            "\t-s S/N: Open device with specified 64bits serial number\n"
+            "\t-p packing: Set packing for samples, \n"
+            "\t   1=enabled(12bits packed), 0=disabled(default 16bits not packed)\n"
             "Decoder extra options:\n"
-            "\t[-H do not use (or update) the hash table\n"
-            "\t[-Q quick mode - doesn't dig deep for weak signals\n"
-            "\t[-S single pass mode, no subtraction (same as original wsprd)\n"
-            "\t[-W wideband mode - decode signals within +/- 150 Hz of center\n"
+            "\t-H do not use (or update) the hash table\n"
+            "\t-Q quick mode, doesn't dig deep for weak signals\n"
+            "\t-S single pass mode, no subtraction (same as original wsprd)\n"
+            "\t-W wideband mode, decode signals within +/- 150 Hz of center\n"
             "Example:\n"
             "\tairspy_wsprd -f 144.489M -r 2.5M -c A1XYZ -g AB12cd -l 10 -m 7 -v 7\n");
     exit(1);
@@ -360,7 +363,7 @@ int main(int argc, char** argv) {
     if (argc <= 1)
         usage();
 
-    while ((opt = getopt(argc, argv, "f:c:g:r:l:m:v:b:s:p:H:Q:S:W")) != -1) {
+    while ((opt = getopt(argc, argv, "f:c:g:r:l:m:v:b:s:p:k:H:Q:S:W")) != -1) {
         switch (opt) {
         case 'f': // Frequency
             rx_options.dialfreq = (uint32_t)atofs(optarg);
@@ -399,6 +402,11 @@ int main(int argc, char** argv) {
             break;
         case 'p': // PPS correction
             rx_options.shift = (int32_t)atoi(optarg);
+            break;
+        case 'k': // Bit packing
+            rx_options.packing = (uint32_t)atoi(optarg);
+            if (rx_options.packing < 0) rx_options.packing = 0;
+            if (rx_options.packing > 1) rx_options.packing = 1;
             break;
         case 'H':
             dec_options.usehashtable = 0;
@@ -466,6 +474,16 @@ int main(int argc, char** argv) {
         result = airspy_open(&device);
         if( result != AIRSPY_SUCCESS ) {
             printf("airspy_open() failed: %s (%d)\n", airspy_error_name(result), result);
+            airspy_exit();
+            return EXIT_FAILURE;
+        }
+    }
+
+    if(rx_options.packing) {
+        result = airspy_set_packing(device, 1);
+        if( result != AIRSPY_SUCCESS ) {
+            printf("airspy_set_packing() failed: %s (%d)\n", airspy_error_name(result), result);
+            airspy_close(device);
             airspy_exit();
             return EXIT_FAILURE;
         }
@@ -542,16 +560,17 @@ int main(int argc, char** argv) {
     struct tm *gtm = gmtime(&rawtime);
     printf("Starting airspy-wsprd (%04d-%02d-%02d, %02d:%02dz) -- Version 0.1\n",
            gtm->tm_year + 1900, gtm->tm_mon + 1, gtm->tm_mday, gtm->tm_hour, gtm->tm_min);
-    printf("  Dial freq. : %d Hz\n", rx_options.dialfreq);
-    printf("  Real freq. : %d Hz\n", rx_options.realfreq);
-    printf("  Rate       : %d Hz\n", rx_options.rate);
-    printf("  Callsign   : %s\n", dec_options.rcall);
-    printf("  Locator    : %s\n", dec_options.rloc);
-    printf("  LNA gain   : %d dB\n", rx_options.lnaGain);
-    printf("  Mixer gain : %d dB\n", rx_options.mixerGain);
-    printf("  VGA gain   : %d dB\n", rx_options.vgaGain);
-    printf("  Bias       : %d\n", rx_options.bias);
-    printf("  S/N        : 0x%08X%08X\n", readSerial.serial_no[2], readSerial.serial_no[3]);
+    printf("  Dial freq.   : %d Hz\n", rx_options.dialfreq);
+    printf("  Real freq.   : %d Hz\n", rx_options.realfreq);
+    printf("  Rate         : %d Hz\n", rx_options.rate);
+    printf("  Callsign     : %s\n", dec_options.rcall);
+    printf("  Locator      : %s\n", dec_options.rloc);
+    printf("  LNA gain     : %d dB\n", rx_options.lnaGain);
+    printf("  Mixer gain   : %d dB\n", rx_options.mixerGain);
+    printf("  VGA gain     : %d dB\n", rx_options.vgaGain);
+    printf("  Bias         : %s\n", rx_options.bias ? "yes" : "no");
+    printf("  Bits packing : %s\n", rx_options.packing ? "yes" : "no");
+    printf("  S/N          : 0x%08X%08X\n", readSerial.serial_no[2], readSerial.serial_no[3]);
 
     // Create the thread and stuff for separate decoding
     pthread_rwlock_init(&dec.rw, NULL);
