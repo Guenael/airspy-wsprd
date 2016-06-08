@@ -333,7 +333,7 @@ void usage(void) {
             "\t-r sampling rate [2.5M, 3M, 6M, 10M], (default: 2.5M)\n"
             "\t-p frequency correction (default: 0)\n"
             "\t-s S/N: Open device with specified 64bits serial number\n"
-            "\t-p packing: Set packing for samples, \n"
+            "\t-k packing: Set packing for samples, \n"
             "\t   1=enabled(12bits packed), 0=disabled(default 16bits not packed)\n"
             "Decoder extra options:\n"
             "\t-H do not use (or update) the hash table\n"
