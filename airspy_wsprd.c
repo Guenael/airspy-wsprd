@@ -182,7 +182,7 @@ int rx_callback(airspy_transfer_t* transfer) {
 
         /* FIR compensation filter */
         Isum=0.0;
-        for (int i=0, ; i<32; i++) {
+        for (int i=0; i<32; i++) {
             Isum += rx_state.firI[i]*zCoef[i];
             if (i<31) rx_state.firI[i] = rx_state.firI[i+1];
         }
