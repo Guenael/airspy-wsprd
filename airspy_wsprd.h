@@ -48,11 +48,17 @@ struct receiver_state {
     float    *idat;
     float    *qdat;
 
+    /* FIR compensation filter buffer */
+    float    firI[32], firQ[32];
+
     /* Variables used for decimation */
     uint32_t samples_to_xfer;
     uint32_t decim_index;
     uint32_t iq_index;
-    int32_t  I_acc, Q_acc;
+    //int32_t  I_acc, Q_acc;
+    int32_t  Ix1,Ix2,Qx1,Qx2;
+    int32_t  Iy1,It1y,It1z,Qy1,Qt1y,Qt1z;
+    int32_t  Iy2,It2y,It2z,Qy2,Qt2y,Qt2z;
 };
 
 

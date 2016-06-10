@@ -1,0 +1,4 @@
+*.o
+airspy_wsprd
+wspr_wisdom.dat
+hashtable.txt

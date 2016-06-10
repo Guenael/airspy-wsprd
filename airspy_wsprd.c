@@ -46,6 +46,7 @@
 
 
 /* TODO
+ - BUG : no longer work @ 10MHz...
  - clean/fix samplerate selection
  - clean/fix serial number section
  - implement linear gain etc.
@@ -78,14 +79,35 @@ struct decoder_state {
 struct decoder_state dec;
 
 
-
 /* Callback for each buffer received */
 int rx_callback(airspy_transfer_t* transfer) {
     int16_t *sigIn = (int16_t*) transfer->samples;
+    uint32_t sigLenght = transfer->sample_count;
+
+    /* FIR compensation filter coefs
+       Using : Octave/MATLAB code for generating compensation FIR coefficients
+       URL : https://github.com/WestCoastDSP/CIC_Octave_Matlab
+     */
+    const static float zCoef[33] = {
+        -0.0027772683, -0.0005058826,  0.0049745750, -0.0034059318,
+        -0.0077557814,  0.0139375423,  0.0039896935, -0.0299394142,
+         0.0162250643,  0.0405130860, -0.0580746013, -0.0272104968,
+         0.1183705475, -0.0306029022, -0.2011241667,  0.1615898423,
+         0.5000000000,
+         0.1615898423, -0.2011241667, -0.0306029022,  0.1183705475,
+        -0.0272104968, -0.0580746013,  0.0405130860,  0.0162250643,
+        -0.0299394142,  0.0039896935,  0.0139375423, -0.0077557814,
+        -0.0034059318,  0.0049745750, -0.0005058826, -0.0027772683
+    };
+    float Isum,Qsum;
 
     /* Do not process the samples if reception not started or over */
     if ( (rx_state.record_flag == false) || (rx_state.exit_flag == true) )
         return 0;
+
+    /* Convert unsigned signal to signed, without bit shift */
+    for(int32_t i=0; i<sigLenght; i++)
+        sigIn[i] = ((sigIn[i] & 0xFFF) - 2048);
 
     /* Economic mixer @ fs/4 (upper band)
        At fs/4, sin and cosin calculation are no longueur necessary.
@@ -100,7 +122,7 @@ int rx_callback(airspy_transfer_t* transfer) {
        (Weaver technique, keep the lower band)
     */
     int16_t tmp;
-    for (uint32_t i=0; i<(transfer->sample_count); i+=8) {
+    for (uint32_t i=0; i<sigLenght; i+=8) {
         tmp = sigIn[i+3];
         sigIn[i+3] = -sigIn[i+2];
         sigIn[i+2] = tmp;
@@ -113,11 +135,15 @@ int rx_callback(airspy_transfer_t* transfer) {
         sigIn[i+7] = tmp;
     }
 
-    /* Simple square window decimator
+    /* CIC decimator (N=2)
        (could be not perfect in time for some sampling rate.
        Ex: AirSpy vs AirSpy Mini, but works fine in practice)
+       Info: * Understanding CIC Compensation Filters
+               https://www.altera.com/en_US/pdfs/literature/an/an455.pdf
+             * Understanding cascaded integrator-comb filters
+               http://www.embedded.com/design/configurable-systems/4006446/Understanding-cascaded-integrator-comb-filters
     */
-    uint32_t samples_to_write = transfer->sample_count / 2;  // IQ take 2 samples
+    uint32_t samples_to_write = sigLenght / 2;  // IQ take 2 samples
     if (samples_to_write >= rx_state.samples_to_xfer) {
         samples_to_write =  rx_state.samples_to_xfer;
     }
@@ -125,31 +151,66 @@ int rx_callback(airspy_transfer_t* transfer) {
 
     uint32_t i=0;
     while (i < samples_to_write) {
-        rx_state.I_acc += (int32_t)sigIn[i*2];
-        rx_state.Q_acc += (int32_t)sigIn[i*2+1];
+        /* Integrator stages (N=2) */
+        rx_state.Ix1 += (int32_t)sigIn[i*2];
+        rx_state.Ix2 += rx_state.Ix1;
+        rx_state.Qx1 += (int32_t)sigIn[i*2+1];
+        rx_state.Qx2 += rx_state.Qx1;
         i++;
 
+        /* Decimation R=n (ex. rx_options.downsampling=6667) */
         rx_state.decim_index++;
         if (rx_state.decim_index < rx_options.downsampling) {
             continue;
         }
 
+        /* 1st Comb */
+        rx_state.Iy1  = rx_state.Ix2 - rx_state.It1z;
+        rx_state.It1z = rx_state.It1y;
+        rx_state.It1y = rx_state.Ix2;
+        rx_state.Qy1  = rx_state.Qx2 - rx_state.Qt1z;
+        rx_state.Qt1z = rx_state.Qt1y;
+        rx_state.Qt1y = rx_state.Qx2;
+
+        /* 2nd Comd */
+        rx_state.Iy2 = rx_state.Iy1 - rx_state.It2z;
+        rx_state.It2z = rx_state.It2y;
+        rx_state.It2y = rx_state.Iy1;
+        rx_state.Qy2 = rx_state.Qy1 - rx_state.Qt2z;
+        rx_state.Qt2z = rx_state.Qt2y;
+        rx_state.Qt2y = rx_state.Qy1;
+
+        /* FIR compensation filter */
+        Isum=0.0;
+        for (int i=0, ; i<32; i++) {
+            Isum += rx_state.firI[i]*zCoef[i];
+            if (i<31) rx_state.firI[i] = rx_state.firI[i+1];
+        }
+        rx_state.firI[31] = (float)rx_state.Iy2;
+        Isum += rx_state.firI[31]*zCoef[32];
+
+        Qsum=0.0;
+        for (int i=0; i<32; i++) {
+            Qsum += rx_state.firQ[i]*zCoef[i];
+            if (i<31) rx_state.firQ[i] = rx_state.firQ[i+1];
+        }
+        rx_state.firQ[31] = (float)rx_state.Qy2;
+        Qsum += rx_state.firQ[31]*zCoef[32];
+
         /* Lock the buffer during writing */     // Overkill ?!
         pthread_rwlock_wrlock(&dec.rw);
-        rx_state.idat[rx_state.iq_index] = (float)rx_state.I_acc;
-        rx_state.qdat[rx_state.iq_index] = (float)rx_state.Q_acc;
+        rx_state.idat[rx_state.iq_index] = Isum;
+        rx_state.qdat[rx_state.iq_index] = Qsum;
         pthread_rwlock_unlock(&dec.rw);
 
-        rx_state.I_acc = 0;
-        rx_state.Q_acc = 0;
         rx_state.decim_index = 0;
         rx_state.iq_index++;
     }
 
+    // Update : decode_flag + int32_t samples_to_xfer // samples_to_xfer >= 0 ...
     if (rx_state.samples_to_xfer == 0) {
         rx_state.record_flag = false;
         printf("RX done! [Buffer size: %d]\n", rx_state.iq_index);
-
 
         /* Send a signal to the other thread to start the decoding */
         pthread_mutex_lock(&dec.ready_mutex);
@@ -191,8 +252,6 @@ void postSpots(int n_results) {
 
 
 static void *wsprDecoder(void *arg) {
-    //struct decoder_state *d = arg; // FIXME, besoin du arg avec struc globals ??
-
     static float iSamples[MAX_SAMPLES_SIZE]= {0};
     static float qSamples[MAX_SAMPLES_SIZE]= {0};
     static uint32_t samples_len;
@@ -283,8 +342,13 @@ void initSampleStorage() {
     rx_state.samples_to_xfer = rx_options.rate * CAPTURE_LENGHT;
     rx_state.decim_index=0;
     rx_state.iq_index=0;
-    rx_state.I_acc=0;
-    rx_state.Q_acc=0;
+    rx_state.Ix1=0,rx_state.Ix2=0,rx_state.Qx1=0,rx_state.Qx2=0;
+    rx_state.Iy1=0,rx_state.It1y=0,rx_state.It1z=0;
+    rx_state.Qy1=0,rx_state.Qt1y=0,rx_state.Qt1z=0;
+    rx_state.Iy2=0,rx_state.It2y=0,rx_state.It2z=0;
+    rx_state.Qy2=0,rx_state.Qt2y=0,rx_state.Qt2z=0;
+    //memset(rx_state.firI,0x00,4*sizeof(rx_state.firI));
+    //memset(rx_state.firQ,0x00,4*sizeof(rx_state.firQ));
 }
 
 
@@ -442,11 +506,9 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    // FIXME // TODO : sampling rate check
-
     /* Calcule decimation rate & frequency offset for fs/4 shift */
     rx_options.fs4 = rx_options.rate / 4;
-    rx_options.downsampling = (uint32_t)ceil((double)rx_options.rate / 375.0);
+    rx_options.downsampling = (uint32_t)round((double)rx_options.rate / 375.0);
     rx_options.realfreq = rx_options.dialfreq + rx_options.shift;
 
     /* If something goes wrong... */
@@ -489,7 +551,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    result = airspy_set_sample_type(device, AIRSPY_SAMPLE_INT16_REAL);
+    result = airspy_set_sample_type(device, AIRSPY_SAMPLE_UINT16_REAL);
     if (result != AIRSPY_SUCCESS) {
         printf("airspy_set_sample_type() failed: %s (%d)\n", airspy_error_name(result), result);
         airspy_close(device);
@@ -560,11 +622,12 @@ int main(int argc, char** argv) {
     struct tm *gtm = gmtime(&rawtime);
     printf("Starting airspy-wsprd (%04d-%02d-%02d, %02d:%02dz) -- Version 0.1\n",
            gtm->tm_year + 1900, gtm->tm_mon + 1, gtm->tm_mday, gtm->tm_hour, gtm->tm_min);
+    printf("  Callsign     : %s\n", dec_options.rcall);
+    printf("  Locator      : %s\n", dec_options.rloc);
     printf("  Dial freq.   : %d Hz\n", rx_options.dialfreq);
     printf("  Real freq.   : %d Hz\n", rx_options.realfreq);
     printf("  Rate         : %d Hz\n", rx_options.rate);
-    printf("  Callsign     : %s\n", dec_options.rcall);
-    printf("  Locator      : %s\n", dec_options.rloc);
+    printf("  Decimation   : %d\n", rx_options.downsampling);
     printf("  LNA gain     : %d dB\n", rx_options.lnaGain);
     printf("  Mixer gain   : %d dB\n", rx_options.mixerGain);
     printf("  VGA gain     : %d dB\n", rx_options.vgaGain);
@@ -572,15 +635,15 @@ int main(int argc, char** argv) {
     printf("  Bits packing : %s\n", rx_options.packing ? "yes" : "no");
     printf("  S/N          : 0x%08X%08X\n", readSerial.serial_no[2], readSerial.serial_no[3]);
 
-    // Create the thread and stuff for separate decoding
+    /* Create a thread and stuff for separate decoding */
     pthread_rwlock_init(&dec.rw, NULL);
     pthread_cond_init(&dec.ready_cond, NULL);
     pthread_mutex_init(&dec.ready_mutex, NULL);
     pthread_create(&dec.thread, NULL, wsprDecoder, NULL);
 
-    // Main loop : Wait, read, decode
+    /* Main loop : Wait, read, decode */
     while (!rx_state.exit_flag) {
-        // Time Sync on 2 mins
+        /* Time Sync on 2 mins */
         struct timeval lTime;
         gettimeofday(&lTime, NULL);
 
@@ -591,14 +654,14 @@ int main(int argc, char** argv) {
         usleep(uwait);
         printf("SYNC! RX started\n");
 
-        // Store the date at the begin of the frame
+        /* Store the date at the begin of the frame */
         time ( &rawtime );
         gtm = gmtime(&rawtime);
         sprintf(dec_options.date,"%02d%02d%02d", gtm->tm_year - 100, gtm->tm_mon + 1, gtm->tm_mday);
         sprintf(dec_options.uttime,"%02d%02d", gtm->tm_hour, gtm->tm_min);
         dec_options.freq = rx_options.dialfreq;
 
-        // Start to store the samples
+        /* Start to store the samples */
         initSampleStorage();
 
         while( (airspy_is_streaming(device) == AIRSPY_TRUE) &&
@@ -622,13 +685,13 @@ int main(int argc, char** argv) {
 
     printf("Bye!\n");
 
-    /* TEST Free the thread join it */
+    /* Wait the thread join (send a signal before to terminate the job) */
     pthread_mutex_lock(&dec.ready_mutex);
     pthread_cond_signal(&dec.ready_cond);
     pthread_mutex_unlock(&dec.ready_mutex);
     pthread_join(dec.thread, NULL);
 
-    // Destroy the lock/cond/thread
+    /* Destroy the lock/cond/thread */
     pthread_rwlock_destroy(&dec.rw);
     pthread_cond_destroy(&dec.ready_cond);
     pthread_mutex_destroy(&dec.ready_mutex);
