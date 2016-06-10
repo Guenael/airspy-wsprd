@@ -82,10 +82,32 @@ struct decoder_state dec;
 /* Callback for each buffer received */
 int rx_callback(airspy_transfer_t* transfer) {
     int16_t *sigIn = (int16_t*) transfer->samples;
+    uint32_t sigLenght = transfer->sample_count;
+
+    /* FIR compensation filter coefs
+       Using : Octave/MATLAB code for generating compensation FIR coefficients
+       URL : https://github.com/WestCoastDSP/CIC_Octave_Matlab
+     */
+    const static float zCoef[33] = {
+        -0.0027772683, -0.0005058826,  0.0049745750, -0.0034059318,
+        -0.0077557814,  0.0139375423,  0.0039896935, -0.0299394142,
+         0.0162250643,  0.0405130860, -0.0580746013, -0.0272104968,
+         0.1183705475, -0.0306029022, -0.2011241667,  0.1615898423,
+         0.5000000000,
+         0.1615898423, -0.2011241667, -0.0306029022,  0.1183705475,
+        -0.0272104968, -0.0580746013,  0.0405130860,  0.0162250643,
+        -0.0299394142,  0.0039896935,  0.0139375423, -0.0077557814,
+        -0.0034059318,  0.0049745750, -0.0005058826, -0.0027772683
+    };
+    float Isum,Qsum;
 
     /* Do not process the samples if reception not started or over */
     if ( (rx_state.record_flag == false) || (rx_state.exit_flag == true) )
         return 0;
+
+    /* Convert unsigned signal to signed, without bit shift */
+    for(int32_t i=0; i<sigLenght; i++)
+        sigIn[i] = ((sigIn[i] & 0xFFF) - 2048);
 
     /* Economic mixer @ fs/4 (upper band)
        At fs/4, sin and cosin calculation are no longueur necessary.
@@ -100,7 +122,7 @@ int rx_callback(airspy_transfer_t* transfer) {
        (Weaver technique, keep the lower band)
     */
     int16_t tmp;
-    for (uint32_t i=0; i<(transfer->sample_count); i+=8) {
+    for (uint32_t i=0; i<sigLenght; i+=8) {
         tmp = sigIn[i+3];
         sigIn[i+3] = -sigIn[i+2];
         sigIn[i+2] = tmp;
@@ -113,11 +135,15 @@ int rx_callback(airspy_transfer_t* transfer) {
         sigIn[i+7] = tmp;
     }
 
-    /* CIC decimator (n2), no FIR after
+    /* CIC decimator (N=2)
        (could be not perfect in time for some sampling rate.
        Ex: AirSpy vs AirSpy Mini, but works fine in practice)
+       Info: * Understanding CIC Compensation Filters
+               https://www.altera.com/en_US/pdfs/literature/an/an455.pdf
+             * Understanding cascaded integrator-comb filters
+               http://www.embedded.com/design/configurable-systems/4006446/Understanding-cascaded-integrator-comb-filters
     */
-    uint32_t samples_to_write = transfer->sample_count / 2;  // IQ take 2 samples
+    uint32_t samples_to_write = sigLenght / 2;  // IQ take 2 samples
     if (samples_to_write >= rx_state.samples_to_xfer) {
         samples_to_write =  rx_state.samples_to_xfer;
     }
@@ -125,7 +151,7 @@ int rx_callback(airspy_transfer_t* transfer) {
 
     uint32_t i=0;
     while (i < samples_to_write) {
-        /* Integrator N=2 */
+        /* Integrator stages (N=2) */
         rx_state.Ix1 += (int32_t)sigIn[i*2];
         rx_state.Ix2 += rx_state.Ix1;
         rx_state.Qx1 += (int32_t)sigIn[i*2+1];
@@ -138,7 +164,7 @@ int rx_callback(airspy_transfer_t* transfer) {
             continue;
         }
 
-        /* Comb N=2 */
+        /* 1st Comb */
         rx_state.Iy1  = rx_state.Ix2 - rx_state.It1z;
         rx_state.It1z = rx_state.It1y;
         rx_state.It1y = rx_state.Ix2;
@@ -146,6 +172,7 @@ int rx_callback(airspy_transfer_t* transfer) {
         rx_state.Qt1z = rx_state.Qt1y;
         rx_state.Qt1y = rx_state.Qx2;
 
+        /* 2nd Comd */
         rx_state.Iy2 = rx_state.Iy1 - rx_state.It2z;
         rx_state.It2z = rx_state.It2y;
         rx_state.It2y = rx_state.Iy1;
@@ -153,16 +180,34 @@ int rx_callback(airspy_transfer_t* transfer) {
         rx_state.Qt2z = rx_state.Qt2y;
         rx_state.Qt2y = rx_state.Qy1;
 
+        /* FIR compensation filter */
+        Isum=0.0;
+        for (int i=0, ; i<32; i++) {
+            Isum += rx_state.firI[i]*zCoef[i];
+            if (i<31) rx_state.firI[i] = rx_state.firI[i+1];
+        }
+        rx_state.firI[31] = (float)rx_state.Iy2;
+        Isum += rx_state.firI[31]*zCoef[32];
+
+        Qsum=0.0;
+        for (int i=0; i<32; i++) {
+            Qsum += rx_state.firQ[i]*zCoef[i];
+            if (i<31) rx_state.firQ[i] = rx_state.firQ[i+1];
+        }
+        rx_state.firQ[31] = (float)rx_state.Qy2;
+        Qsum += rx_state.firQ[31]*zCoef[32];
+
         /* Lock the buffer during writing */     // Overkill ?!
         pthread_rwlock_wrlock(&dec.rw);
-        rx_state.idat[rx_state.iq_index] = (float)rx_state.Iy2;
-        rx_state.qdat[rx_state.iq_index] = (float)rx_state.Qy2;
+        rx_state.idat[rx_state.iq_index] = Isum;
+        rx_state.qdat[rx_state.iq_index] = Qsum;
         pthread_rwlock_unlock(&dec.rw);
 
         rx_state.decim_index = 0;
         rx_state.iq_index++;
     }
 
+    // Update : decode_flag + int32_t samples_to_xfer // samples_to_xfer >= 0 ...
     if (rx_state.samples_to_xfer == 0) {
         rx_state.record_flag = false;
         printf("RX done! [Buffer size: %d]\n", rx_state.iq_index);
@@ -302,6 +347,8 @@ void initSampleStorage() {
     rx_state.Qy1=0,rx_state.Qt1y=0,rx_state.Qt1z=0;
     rx_state.Iy2=0,rx_state.It2y=0,rx_state.It2z=0;
     rx_state.Qy2=0,rx_state.Qt2y=0,rx_state.Qt2z=0;
+    //memset(rx_state.firI,0x00,4*sizeof(rx_state.firI));
+    //memset(rx_state.firQ,0x00,4*sizeof(rx_state.firQ));
 }
 
 
@@ -350,7 +397,7 @@ void usage(void) {
             "\t-r sampling rate [2.5M, 3M, 6M, 10M], (default: 2.5M)\n"
             "\t-p frequency correction (default: 0)\n"
             "\t-s S/N: Open device with specified 64bits serial number\n"
-            "\t-p packing: Set packing for samples, \n"
+            "\t-k packing: Set packing for samples, \n"
             "\t   1=enabled(12bits packed), 0=disabled(default 16bits not packed)\n"
             "Decoder extra options:\n"
             "\t-H do not use (or update) the hash table\n"
@@ -504,7 +551,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    result = airspy_set_sample_type(device, AIRSPY_SAMPLE_INT16_REAL);
+    result = airspy_set_sample_type(device, AIRSPY_SAMPLE_UINT16_REAL);
     if (result != AIRSPY_SUCCESS) {
         printf("airspy_set_sample_type() failed: %s (%d)\n", airspy_error_name(result), result);
         airspy_close(device);
