@@ -152,10 +152,9 @@ int rx_callback(airspy_transfer_t* transfer) {
     for(int32_t i=0; i<sigLenght/2; i++) {
         /* Integrator stages (N=2) */
         Ix1 += (int32_t)sigIn[i*2];
-        Ix2 += Ix1;
         Qx1 += (int32_t)sigIn[i*2+1];
+        Ix2 += Ix1;
         Qx2 += Qx1;
-        i++;
 
         /* Decimation R=n (ex. rx_options.downsampling=6667) */
         decimationIndex++;
@@ -181,23 +180,21 @@ int rx_callback(airspy_transfer_t* transfer) {
         // FIXME/TODO : some optimisition here
 
         /* FIR compensation filter */
-        Isum=0.0;
-        for (int i=0; i<32; i++) {
-            Isum += firI[i]*zCoef[i];
-            if (i<31) firI[i] = firI[i+1];
+        Isum=0.0, Qsum=0.0;
+        for (int j=0; j<32; j++) {
+            Isum += firI[j]*zCoef[j];
+            Qsum += firQ[j]*zCoef[j];
+            if (j<31) {
+                firI[j] = firI[j+1];
+                firQ[j] = firQ[j+1];
+            }
         }
         firI[31] = (float)Iy2;
-        Isum += firI[31]*zCoef[32];
-
-        // FIXME/TODO : Merge boths
-        Qsum=0.0;
-        for (int i=0; i<32; i++) {
-            Qsum += firQ[i]*zCoef[i];
-            if (i<31) firQ[i] = firQ[i+1];
-        }
         firQ[31] = (float)Qy2;
+        Isum += firI[31]*zCoef[32];
         Qsum += firQ[31]*zCoef[32];
 
+        /* Save the result in the buffer */
         if (rx_state.iqIndex < (SIGNAL_LENGHT * SIGNAL_SAMPLE_RATE)) {
             /* Lock the buffer during writing */     // Overkill ?!
             pthread_rwlock_wrlock(&dec.rw);
@@ -225,7 +222,7 @@ int rx_callback(airspy_transfer_t* transfer) {
 void postSpots(int n_results) {
     CURL *curl;
     CURLcode res;
-    char url[256];
+    char url[256]; // FIXME, possible buffer overflow
 
     for (uint32_t i=0; i<n_results; i++) {
         sprintf(url,"http://wsprnet.org/post?function=wspr&rcall=%s&rgrid=%s&rqrg=%.6f&date=%s&time=%s&sig=%.0f&dt=%.1f&tqrg=%.6f&tcall=%s&tgrid=%s&dbm=%s&version=0.1_wsprd&mode=2",
