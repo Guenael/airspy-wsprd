@@ -46,17 +46,17 @@
 
 
 /* TODO
- - BUG : no longer work @ 10MHz...
+ - BUG : bit packing not working
  - clean/fix samplerate selection
  - clean/fix serial number section
- - implement linear gain etc.
  - multispot report in one post
  - type fix (uint32_t etc..)
+ - delete wideband option (cf. FIR/CIC)
 */
 
 
-#define CAPTURE_LENGHT    116
-#define MAX_SAMPLES_SIZE  45000    // (120 sec max @ 375sps)
+#define SIGNAL_LENGHT      116
+#define SIGNAL_SAMPLE_RATE 375
 
 
 /* Global declaration for these structs */
@@ -84,6 +84,16 @@ int rx_callback(airspy_transfer_t* transfer) {
     int16_t *sigIn = (int16_t*) transfer->samples;
     uint32_t sigLenght = transfer->sample_count;
 
+    static uint32_t decimationIndex=0;
+    
+    /* CIC buffers */
+    static int32_t  Ix1,Ix2,Qx1,Qx2;
+    static int32_t  Iy1,It1y,It1z,Qy1,Qt1y,Qt1z;
+    static int32_t  Iy2,It2y,It2z,Qy2,Qt2y,Qt2z;
+
+    /* FIR compensation filter buffers */
+    static float    firI[32], firQ[32];
+
     /* FIR compensation filter coefs
        Using : Octave/MATLAB code for generating compensation FIR coefficients
        URL : https://github.com/WestCoastDSP/CIC_Octave_Matlab
@@ -100,10 +110,6 @@ int rx_callback(airspy_transfer_t* transfer) {
         -0.0034059318,  0.0049745750, -0.0005058826, -0.0027772683
     };
     float Isum,Qsum;
-
-    /* Do not process the samples if reception not started or over */
-    if ( (rx_state.record_flag == false) || (rx_state.exit_flag == true) )
-        return 0;
 
     /* Convert unsigned signal to signed, without bit shift */
     for(int32_t i=0; i<sigLenght; i++)
@@ -143,79 +149,74 @@ int rx_callback(airspy_transfer_t* transfer) {
              * Understanding cascaded integrator-comb filters
                http://www.embedded.com/design/configurable-systems/4006446/Understanding-cascaded-integrator-comb-filters
     */
-    uint32_t samples_to_write = sigLenght / 2;  // IQ take 2 samples
-    if (samples_to_write >= rx_state.samples_to_xfer) {
-        samples_to_write =  rx_state.samples_to_xfer;
-    }
-    rx_state.samples_to_xfer -= samples_to_write;
-
-    uint32_t i=0;
-    while (i < samples_to_write) {
+    for(int32_t i=0; i<sigLenght/2; i++) {
         /* Integrator stages (N=2) */
-        rx_state.Ix1 += (int32_t)sigIn[i*2];
-        rx_state.Ix2 += rx_state.Ix1;
-        rx_state.Qx1 += (int32_t)sigIn[i*2+1];
-        rx_state.Qx2 += rx_state.Qx1;
+        Ix1 += (int32_t)sigIn[i*2];
+        Ix2 += Ix1;
+        Qx1 += (int32_t)sigIn[i*2+1];
+        Qx2 += Qx1;
         i++;
 
         /* Decimation R=n (ex. rx_options.downsampling=6667) */
-        rx_state.decim_index++;
-        if (rx_state.decim_index < rx_options.downsampling) {
+        decimationIndex++;
+        if (decimationIndex < rx_options.downsampling) {
             continue;
         }
 
         /* 1st Comb */
-        rx_state.Iy1  = rx_state.Ix2 - rx_state.It1z;
-        rx_state.It1z = rx_state.It1y;
-        rx_state.It1y = rx_state.Ix2;
-        rx_state.Qy1  = rx_state.Qx2 - rx_state.Qt1z;
-        rx_state.Qt1z = rx_state.Qt1y;
-        rx_state.Qt1y = rx_state.Qx2;
+        Iy1  = Ix2 - It1z;
+        It1z = It1y;
+        It1y = Ix2;
+        Qy1  = Qx2 - Qt1z;
+        Qt1z = Qt1y;
+        Qt1y = Qx2;
 
         /* 2nd Comd */
-        rx_state.Iy2 = rx_state.Iy1 - rx_state.It2z;
-        rx_state.It2z = rx_state.It2y;
-        rx_state.It2y = rx_state.Iy1;
-        rx_state.Qy2 = rx_state.Qy1 - rx_state.Qt2z;
-        rx_state.Qt2z = rx_state.Qt2y;
-        rx_state.Qt2y = rx_state.Qy1;
+        Iy2  = Iy1 - It2z;
+        It2z = It2y;
+        It2y = Iy1;
+        Qy2  = Qy1 - Qt2z;
+        Qt2z = Qt2y;
+        Qt2y = Qy1;
+        // FIXME/TODO : some optimisition here
 
         /* FIR compensation filter */
         Isum=0.0;
         for (int i=0; i<32; i++) {
-            Isum += rx_state.firI[i]*zCoef[i];
-            if (i<31) rx_state.firI[i] = rx_state.firI[i+1];
+            Isum += firI[i]*zCoef[i];
+            if (i<31) firI[i] = firI[i+1];
         }
-        rx_state.firI[31] = (float)rx_state.Iy2;
-        Isum += rx_state.firI[31]*zCoef[32];
+        firI[31] = (float)Iy2;
+        Isum += firI[31]*zCoef[32];
 
+        // FIXME/TODO : Merge boths
         Qsum=0.0;
         for (int i=0; i<32; i++) {
-            Qsum += rx_state.firQ[i]*zCoef[i];
-            if (i<31) rx_state.firQ[i] = rx_state.firQ[i+1];
+            Qsum += firQ[i]*zCoef[i];
+            if (i<31) firQ[i] = firQ[i+1];
         }
-        rx_state.firQ[31] = (float)rx_state.Qy2;
-        Qsum += rx_state.firQ[31]*zCoef[32];
+        firQ[31] = (float)Qy2;
+        Qsum += firQ[31]*zCoef[32];
 
-        /* Lock the buffer during writing */     // Overkill ?!
-        pthread_rwlock_wrlock(&dec.rw);
-        rx_state.idat[rx_state.iq_index] = Isum;
-        rx_state.qdat[rx_state.iq_index] = Qsum;
-        pthread_rwlock_unlock(&dec.rw);
-
-        rx_state.decim_index = 0;
-        rx_state.iq_index++;
-    }
-
-    // Update : decode_flag + int32_t samples_to_xfer // samples_to_xfer >= 0 ...
-    if (rx_state.samples_to_xfer == 0) {
-        rx_state.record_flag = false;
-        printf("RX done! [Buffer size: %d]\n", rx_state.iq_index);
-
-        /* Send a signal to the other thread to start the decoding */
-        pthread_mutex_lock(&dec.ready_mutex);
-        pthread_cond_signal(&dec.ready_cond);
-        pthread_mutex_unlock(&dec.ready_mutex);
+        if (rx_state.iqIndex < (SIGNAL_LENGHT * SIGNAL_SAMPLE_RATE)) {
+            /* Lock the buffer during writing */     // Overkill ?!
+            pthread_rwlock_wrlock(&dec.rw);
+            rx_state.iSamples[rx_state.iqIndex] = Isum;
+            rx_state.qSamples[rx_state.iqIndex] = Qsum;
+            pthread_rwlock_unlock(&dec.rw);
+            rx_state.iqIndex++;
+        } else {
+            if (rx_state.decode_flag == false) {
+                /* Send a signal to the other thread to start the decoding */
+                pthread_mutex_lock(&dec.ready_mutex);
+                pthread_cond_signal(&dec.ready_cond);
+                pthread_mutex_unlock(&dec.ready_mutex);
+                rx_state.decode_flag = true;
+                printf("RX done! [Buffer size: %d]\n", rx_state.iqIndex);
+            }
+        }
+        
+        decimationIndex = 0;
     }
     return 0;
 }
@@ -252,8 +253,11 @@ void postSpots(int n_results) {
 
 
 static void *wsprDecoder(void *arg) {
-    static float iSamples[MAX_SAMPLES_SIZE]= {0};
-    static float qSamples[MAX_SAMPLES_SIZE]= {0};
+    /* WSPR decoder use buffers of 45000 samples (fixed value)
+       (120 sec max @ 375sps = 45000 samples)
+    */
+    static float iSamples[45000]={0};
+    static float qSamples[45000]={0};
     static uint32_t samples_len;
     int n_results=0;
 
@@ -267,9 +271,9 @@ static void *wsprDecoder(void *arg) {
 
         // Lock the buffer access and make copy
         pthread_rwlock_wrlock(&dec.rw);
-        memcpy(iSamples, rx_state.idat, rx_state.iq_index * sizeof(float));
-        memcpy(qSamples, rx_state.qdat, rx_state.iq_index * sizeof(float));
-        samples_len = rx_state.iq_index;  // Overkill ?
+        memcpy(iSamples, rx_state.iSamples, rx_state.iqIndex * sizeof(float));
+        memcpy(qSamples, rx_state.qSamples, rx_state.iqIndex * sizeof(float));
+        samples_len = rx_state.iqIndex;  // Overkill ?
         pthread_rwlock_unlock(&dec.rw);
 
         // Search & decode the signal
@@ -338,17 +342,8 @@ int parse_u64(char* s, uint64_t* const value) {
 
 /* Reset flow control variable & decimation variables */
 void initSampleStorage() {
-    rx_state.record_flag = true;
-    rx_state.samples_to_xfer = rx_options.rate * CAPTURE_LENGHT;
-    rx_state.decim_index=0;
-    rx_state.iq_index=0;
-    rx_state.Ix1=0,rx_state.Ix2=0,rx_state.Qx1=0,rx_state.Qx2=0;
-    rx_state.Iy1=0,rx_state.It1y=0,rx_state.It1z=0;
-    rx_state.Qy1=0,rx_state.Qt1y=0,rx_state.Qt1z=0;
-    rx_state.Iy2=0,rx_state.It2y=0,rx_state.It2z=0;
-    rx_state.Qy2=0,rx_state.Qt2y=0,rx_state.Qt2z=0;
-    //memset(rx_state.firI,0x00,4*sizeof(rx_state.firI));
-    //memset(rx_state.firQ,0x00,4*sizeof(rx_state.firQ));
+    rx_state.decode_flag = false;
+    rx_state.iqIndex=0;
 }
 
 
@@ -378,7 +373,7 @@ void initrx_options() {
 void sigint_callback_handler(int signum) {
     fprintf(stdout, "Caught signal %d\n", signum);
     rx_state.exit_flag = true;
-    rx_state.record_flag = false;
+    //rx_state.record_flag = false;
 }
 
 
@@ -418,11 +413,13 @@ int main(int argc, char** argv) {
     initrx_options();
     initDecoder_options();
 
-    // RX buffer allocation (120 sec max @ 375sps)
-    rx_state.idat=malloc(sizeof(float)*MAX_SAMPLES_SIZE);
-    rx_state.qdat=malloc(sizeof(float)*MAX_SAMPLES_SIZE);
+    /* RX buffer allocation */
+    rx_state.iSamples=malloc(sizeof(float)*SIGNAL_LENGHT*SIGNAL_SAMPLE_RATE);
+    rx_state.qSamples=malloc(sizeof(float)*SIGNAL_LENGHT*SIGNAL_SAMPLE_RATE);
+
+    /* Stop condition setup */
     rx_state.exit_flag   = false;
-    rx_state.record_flag = false;
+    rx_state.decode_flag = false;
 
     if (argc <= 1)
         usage();
@@ -635,7 +632,9 @@ int main(int argc, char** argv) {
     printf("  Bits packing : %s\n", rx_options.packing ? "yes" : "no");
     printf("  S/N          : 0x%08X%08X\n", readSerial.serial_no[2], readSerial.serial_no[3]);
 
-    /* Create a thread and stuff for separate decoding */
+    /* Create a thread and stuff for separate decoding
+       Info : https://computing.llnl.gov/tutorials/pthreads/
+    */
     pthread_rwlock_init(&dec.rw, NULL);
     pthread_cond_init(&dec.ready_cond, NULL);
     pthread_mutex_init(&dec.ready_mutex, NULL);
@@ -664,8 +663,9 @@ int main(int argc, char** argv) {
         /* Start to store the samples */
         initSampleStorage();
 
-        while( (airspy_is_streaming(device) == AIRSPY_TRUE) &&
-                (rx_state.exit_flag == false) && (rx_state.record_flag == true) ) {
+        while( (airspy_is_streaming(device) == AIRSPY_TRUE) && 
+               (rx_state.exit_flag == false) && 
+               (rx_state.iqIndex < (SIGNAL_LENGHT * SIGNAL_SAMPLE_RATE) ) ) {
             sleep(1);
         }
     }

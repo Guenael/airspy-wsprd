@@ -33,32 +33,23 @@
 
 
 #ifndef bool
-typedef uint32_t bool;
-#define true  1
-#define false 0
+	typedef uint32_t bool;
+	#define true  1
+	#define false 0
 #endif
 
 
 struct receiver_state {
     /* Variables used for stop conditions */
     bool exit_flag;
-    bool record_flag;
+    bool decode_flag;
 
     /* Buffer used for sampling */
-    float    *idat;
-    float    *qdat;
+    float    *iSamples;
+    float    *qSamples;
 
-    /* FIR compensation filter buffer */
-    float    firI[32], firQ[32];
-
-    /* Variables used for decimation */
-    uint32_t samples_to_xfer;
-    uint32_t decim_index;
-    uint32_t iq_index;
-    //int32_t  I_acc, Q_acc;
-    int32_t  Ix1,Ix2,Qx1,Qx2;
-    int32_t  Iy1,It1y,It1z,Qy1,Qt1y,Qt1z;
-    int32_t  Iy2,It2y,It2z,Qy2,Qt2y,Qt2z;
+    /* Simple index */
+    uint32_t iqIndex;
 };
 
 
