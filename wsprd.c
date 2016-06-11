@@ -445,6 +445,8 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints,
     float f1, fstep, sync1=0.0, drift1;
     int noprint=0;
     int uniques=0;
+    float fmin=-110.0;
+    float fmax=110.0;
 
     char *hashtab;
     hashtab=malloc(sizeof(char)*32768*13);
@@ -628,13 +630,13 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints,
         }
 
         // Compute corrected fmin, fmax, accounting for dial frequency error
-        options.fmin += dialfreq_error;    // dialfreq_error is in units of Hz
-        options.fmax += dialfreq_error;
+        fmin += dialfreq_error;    // dialfreq_error is in units of Hz
+        fmax += dialfreq_error;
 
         // Don't waste time on signals outside of the range [fmin,fmax].
         i=0;
         for( j=0; j<npk; j++) {
-            if( freq0[j] >= options.fmin && freq0[j] <= options.fmax ) {
+            if( freq0[j] >= fmin && freq0[j] <= fmax ) {
                 freq0[i]=freq0[j];
                 snr0[i]=snr0[j];
                 i++;

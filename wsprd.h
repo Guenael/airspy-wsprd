@@ -42,8 +42,6 @@ struct decoder_options {
     uint32_t usehashtable; //  ''
     uint32_t npasses;      //  ''
     uint32_t subtraction;  //  ''
-    float    fmin;         //  ''
-    float    fmax;         //  ''
 };
 
 

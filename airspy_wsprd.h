@@ -68,4 +68,6 @@ struct receiver_options {
     uint32_t downsampling;
     uint64_t serialnumber;
     uint64_t readserialno;
+    char     date[7];
+    char     uttime[5];
 };

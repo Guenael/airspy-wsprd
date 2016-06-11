@@ -51,7 +51,6 @@
  - clean/fix serial number section
  - multispot report in one post
  - type fix (uint32_t etc..)
- - delete wideband option (cf. FIR/CIC)
 */
 
 
@@ -113,7 +112,7 @@ int rx_callback(airspy_transfer_t* transfer) {
 
     /* Convert unsigned signal to signed, without bit shift */
     for(int32_t i=0; i<sigLenght; i++)
-        sigIn[i] = ((sigIn[i] & 0xFFF) - 2048);
+        sigIn[i] = (sigIn[i] & 0xFFF) - 2048;
 
     /* Economic mixer @ fs/4 (upper band)
        At fs/4, sin and cosin calculation are no longueur necessary.
@@ -181,7 +180,7 @@ int rx_callback(airspy_transfer_t* transfer) {
 
         /* FIR compensation filter */
         Isum=0.0, Qsum=0.0;
-        for (int j=0; j<32; j++) {
+        for (uint32_t j=0; j<32; j++) {
             Isum += firI[j]*zCoef[j];
             Qsum += firQ[j]*zCoef[j];
             if (j<31) {
@@ -219,7 +218,7 @@ int rx_callback(airspy_transfer_t* transfer) {
 }
 
 
-void postSpots(int n_results) {
+void postSpots(uint32_t n_results) {
     CURL *curl;
     CURLcode res;
     char url[256]; // FIXME, possible buffer overflow
@@ -256,7 +255,7 @@ static void *wsprDecoder(void *arg) {
     static float iSamples[45000]={0};
     static float qSamples[45000]={0};
     static uint32_t samples_len;
-    int n_results=0;
+    int32_t n_results=0;
 
     while (!rx_state.exit_flag) {
         pthread_mutex_lock(&dec.ready_mutex);
@@ -266,14 +265,20 @@ static void *wsprDecoder(void *arg) {
         if(rx_state.exit_flag)  // Abord case, final sig
             break;
 
-        // Lock the buffer access and make copy
+        /* Lock the buffer access and make copy */
         pthread_rwlock_wrlock(&dec.rw);
         memcpy(iSamples, rx_state.iSamples, rx_state.iqIndex * sizeof(float));
         memcpy(qSamples, rx_state.qSamples, rx_state.iqIndex * sizeof(float));
         samples_len = rx_state.iqIndex;  // Overkill ?
         pthread_rwlock_unlock(&dec.rw);
 
-        // Search & decode the signal
+        /* Date and time will be updated/overload during the search & decoding process
+           Make a simple copy
+        */
+        memcpy(dec_options.date, rx_options.date, sizeof(rx_options.date));
+        memcpy(dec_options.uttime, rx_options.uttime, sizeof(rx_options.uttime));
+
+        /* Search & decode the signal */
         wspr_decode(iSamples, qSamples, samples_len, dec_options, dec_results, &n_results);
         postSpots(n_results);
 
@@ -309,7 +314,7 @@ double atofs(char *s) {
 }
 
 
-int parse_u64(char* s, uint64_t* const value) {
+int32_t parse_u64(char* s, uint64_t* const value) {
     uint_fast8_t base = 10;
     char* s_end;
     uint64_t u64_value;
@@ -349,8 +354,7 @@ void initDecoder_options() {
     dec_options.usehashtable = 1;
     dec_options.npasses = 2;
     dec_options.subtraction = 1;
-    dec_options.fmin=-110.0;
-    dec_options.fmax=110.0;
+    dec_options.quickmode = 0;
 }
 
 
@@ -359,10 +363,10 @@ void initrx_options() {
     rx_options.lnaGain = 3;    // DEFAULT_LNA_GAIN
     rx_options.mixerGain = 5;  // DEFAULT_MIXER_GAIN
     rx_options.vgaGain = 5;    // DEFAULT_VGA_IF_GAIN
-    rx_options.bias = 0;
+    rx_options.bias = 0;       // No bias
     rx_options.shift = 0;
-    rx_options.rate = 2500000;
-    rx_options.serialnumber = 0;
+    rx_options.rate = 2500000; 
+    rx_options.serialnumber = 0;  
     rx_options.packing = 0;
 }
 
@@ -370,7 +374,6 @@ void initrx_options() {
 void sigint_callback_handler(int signum) {
     fprintf(stdout, "Caught signal %d\n", signum);
     rx_state.exit_flag = true;
-    //rx_state.record_flag = false;
 }
 
 
@@ -395,7 +398,6 @@ void usage(void) {
             "\t-H do not use (or update) the hash table\n"
             "\t-Q quick mode, doesn't dig deep for weak signals\n"
             "\t-S single pass mode, no subtraction (same as original wsprd)\n"
-            "\t-W wideband mode, decode signals within +/- 150 Hz of center\n"
             "Example:\n"
             "\tairspy_wsprd -f 144.489M -r 2.5M -c A1XYZ -g AB12cd -l 10 -m 7 -v 7\n");
     exit(1);
@@ -421,7 +423,7 @@ int main(int argc, char** argv) {
     if (argc <= 1)
         usage();
 
-    while ((opt = getopt(argc, argv, "f:c:g:r:l:m:v:b:s:p:k:H:Q:S:W")) != -1) {
+    while ((opt = getopt(argc, argv, "f:c:g:r:l:m:v:b:s:p:k:H:Q:S")) != -1) {
         switch (opt) {
         case 'f': // Frequency
             rx_options.dialfreq = (uint32_t)atofs(optarg);
@@ -455,10 +457,10 @@ int main(int argc, char** argv) {
             if (rx_options.bias < 0) rx_options.bias = 0;
             if (rx_options.bias > 1) rx_options.bias = 1;
             break;
-        case 's':
+        case 's': // Serial number
             parse_u64(optarg, &rx_options.serialnumber);
             break;
-        case 'p': // PPS correction
+        case 'p': // Fine frequency correction
             rx_options.shift = (int32_t)atoi(optarg);
             break;
         case 'k': // Bit packing
@@ -466,16 +468,13 @@ int main(int argc, char** argv) {
             if (rx_options.packing < 0) rx_options.packing = 0;
             if (rx_options.packing > 1) rx_options.packing = 1;
             break;
-        case 'H':
+        case 'H': // Decoder option, use a hastable 
             dec_options.usehashtable = 0;
-        case 'Q':
+        case 'Q': // Decoder option, faster
             dec_options.quickmode = 1;
-        case 'S':
-            dec_options.subtraction = 0; //single pass mode (same as original wsprd)
+        case 'S': // Decoder option, single pass mode (same as original wsprd)
+            dec_options.subtraction = 0;
             dec_options.npasses = 1;
-        case 'W':
-            dec_options.fmin = -150.0;
-            dec_options.fmax = 150.0;
         default:
             usage();
             break;
@@ -504,6 +503,9 @@ int main(int argc, char** argv) {
     rx_options.fs4 = rx_options.rate / 4;
     rx_options.downsampling = (uint32_t)round((double)rx_options.rate / 375.0);
     rx_options.realfreq = rx_options.dialfreq + rx_options.shift;
+
+    /* Store the frequency used for the decoder */
+    dec_options.freq = rx_options.dialfreq;
 
     /* If something goes wrong... */
     signal(SIGINT, &sigint_callback_handler);
@@ -610,7 +612,7 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    // Print used parameter
+    /* Print used parameter */
     time_t rawtime;
     time ( &rawtime );
     struct tm *gtm = gmtime(&rawtime);
@@ -648,14 +650,14 @@ int main(int argc, char** argv) {
         uint32_t uwait = 120000000 - usec;
         printf("Wait for time sync (start in %d sec)\n", uwait/1000000);
         usleep(uwait);
+        usleep(10000); // Adding 10ms, to be sure to reach this next minute
         printf("SYNC! RX started\n");
 
-        /* Store the date at the begin of the frame */
+        /* Use the Store the date at the begin of the frame */
         time ( &rawtime );
         gtm = gmtime(&rawtime);
-        sprintf(dec_options.date,"%02d%02d%02d", gtm->tm_year - 100, gtm->tm_mon + 1, gtm->tm_mday);
-        sprintf(dec_options.uttime,"%02d%02d", gtm->tm_hour, gtm->tm_min);
-        dec_options.freq = rx_options.dialfreq;
+        sprintf(rx_options.date,"%02d%02d%02d", gtm->tm_year - 100, gtm->tm_mon + 1, gtm->tm_mday);
+        sprintf(rx_options.uttime,"%02d%02d", gtm->tm_hour, gtm->tm_min);
 
         /* Start to store the samples */
         initSampleStorage();
