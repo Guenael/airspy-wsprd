@@ -51,6 +51,7 @@
  - clean/fix serial number section
  - multispot report in one post
  - type fix (uint32_t etc..)
+ - verbose option
 */
 
 
@@ -470,11 +471,14 @@ int main(int argc, char** argv) {
             break;
         case 'H': // Decoder option, use a hastable 
             dec_options.usehashtable = 0;
+            break;
         case 'Q': // Decoder option, faster
             dec_options.quickmode = 1;
+            break;
         case 'S': // Decoder option, single pass mode (same as original wsprd)
             dec_options.subtraction = 0;
             dec_options.npasses = 1;
+            break;
         default:
             usage();
             break;
