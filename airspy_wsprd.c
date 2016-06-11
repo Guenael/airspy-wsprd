@@ -208,7 +208,7 @@ int rx_callback(airspy_transfer_t* transfer) {
                 pthread_cond_signal(&dec.ready_cond);
                 pthread_mutex_unlock(&dec.ready_mutex);
                 rx_state.decode_flag = true;
-                printf("RX done! [Buffer size: %d]\n", rx_state.iqIndex);
+                //printf("RX done! [Buffer size: %d]\n", rx_state.iqIndex);
             }
         }
         
@@ -651,7 +651,7 @@ int main(int argc, char** argv) {
         printf("Wait for time sync (start in %d sec)\n", uwait/1000000);
         usleep(uwait);
         usleep(10000); // Adding 10ms, to be sure to reach this next minute
-        printf("SYNC! RX started\n");
+        //printf("SYNC! RX started\n");
 
         /* Use the Store the date at the begin of the frame */
         time ( &rawtime );
