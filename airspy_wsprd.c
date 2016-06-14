@@ -392,6 +392,7 @@ void usage(void) {
             "\t-b set Bias Tee [0-1], (default: 0 disabled)\n"
             "\t-r sampling rate [2.5M, 3M, 6M, 10M], (default: 2.5M)\n"
             "\t-p frequency correction (default: 0)\n"
+            "\t-u upconverter (default: 0, example: 125M)\n"
             "\t-s S/N: Open device with specified 64bits serial number\n"
             "\t-k packing: Set packing for samples, \n"
             "\t   1=enabled(12bits packed), 0=disabled(default 16bits not packed)\n"
@@ -424,7 +425,7 @@ int main(int argc, char** argv) {
     if (argc <= 1)
         usage();
 
-    while ((opt = getopt(argc, argv, "f:c:g:r:l:m:v:b:s:p:k:H:Q:S")) != -1) {
+    while ((opt = getopt(argc, argv, "f:c:g:r:l:m:v:b:s:p:u:k:H:Q:S")) != -1) {
         switch (opt) {
         case 'f': // Frequency
             rx_options.dialfreq = (uint32_t)atofs(optarg);
@@ -463,6 +464,9 @@ int main(int argc, char** argv) {
             break;
         case 'p': // Fine frequency correction
             rx_options.shift = (int32_t)atoi(optarg);
+            break;
+        case 'u': // Upconverter frequency
+            rx_options.upconverter = (uint32_t)atofs(optarg);
             break;
         case 'k': // Bit packing
             rx_options.packing = (uint32_t)atoi(optarg);
@@ -506,7 +510,7 @@ int main(int argc, char** argv) {
     /* Calcule decimation rate & frequency offset for fs/4 shift */
     rx_options.fs4 = rx_options.rate / 4;
     rx_options.downsampling = (uint32_t)round((double)rx_options.rate / 375.0);
-    rx_options.realfreq = rx_options.dialfreq + rx_options.shift;
+    rx_options.realfreq = rx_options.dialfreq + rx_options.shift + rx_options.upconverter;
 
     /* Store the frequency used for the decoder */
     dec_options.freq = rx_options.dialfreq;
