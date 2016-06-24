@@ -101,10 +101,10 @@ int rx_callback(airspy_transfer_t* transfer) {
     const static float zCoef[33] = {
         -0.0027772683, -0.0005058826,  0.0049745750, -0.0034059318,
         -0.0077557814,  0.0139375423,  0.0039896935, -0.0299394142,
-         0.0162250643,  0.0405130860, -0.0580746013, -0.0272104968,
-         0.1183705475, -0.0306029022, -0.2011241667,  0.1615898423,
-         0.5000000000,
-         0.1615898423, -0.2011241667, -0.0306029022,  0.1183705475,
+        0.0162250643,  0.0405130860, -0.0580746013, -0.0272104968,
+        0.1183705475, -0.0306029022, -0.2011241667,  0.1615898423,
+        0.5000000000,
+        0.1615898423, -0.2011241667, -0.0306029022,  0.1183705475,
         -0.0272104968, -0.0580746013,  0.0405130860,  0.0162250643,
         -0.0299394142,  0.0039896935,  0.0139375423, -0.0077557814,
         -0.0034059318,  0.0049745750, -0.0005058826, -0.0027772683
@@ -255,8 +255,8 @@ static void *wsprDecoder(void *arg) {
     /* WSPR decoder use buffers of 45000 samples (hardcoded)
        (120 sec max @ 375sps = 45000 samples)
     */
-    static float iSamples[45000]={0};
-    static float qSamples[45000]={0};
+    static float iSamples[45000]= {0};
+    static float qSamples[45000]= {0};
     static uint32_t samples_len;
     int32_t n_results=0;
 
@@ -280,7 +280,7 @@ static void *wsprDecoder(void *arg) {
         */
         memcpy(dec_options.date, rx_options.date, sizeof(rx_options.date));
         memcpy(dec_options.uttime, rx_options.uttime, sizeof(rx_options.uttime));
-        
+
         /* DEBUG -- Save samples
         printf("Writing file\n");
         FILE* fd = NULL;

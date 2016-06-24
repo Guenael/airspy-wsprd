@@ -69,5 +69,5 @@ void subtract_signal(float *id, float *qd, long np,
 void subtract_signal2(float *id, float *qd, long np,
                       float f0, int32_t shift0, float drift0, uint8_t* channel_symbols);
 int32_t wspr_decode(float *idat, float *qdat, uint32_t npoints,
-                struct decoder_options options, struct decoder_results *decodes, 
-                int32_t *n_results);
+                    struct decoder_options options, struct decoder_results *decodes,
+                    int32_t *n_results);

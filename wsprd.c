@@ -412,8 +412,8 @@ void subtract_signal2(float *id, float *qd, long np,
 
 //***************************************************************************
 int32_t wspr_decode(float *idat, float *qdat, uint32_t npoints,
-                struct decoder_options options, struct decoder_results *decodes, 
-                int32_t *n_results) {
+                    struct decoder_options options, struct decoder_results *decodes,
+                    int32_t *n_results) {
 
     int32_t i,j,k;
     uint32_t metric, maxcycles, cycles, maxnp;
@@ -426,7 +426,7 @@ int32_t wspr_decode(float *idat, float *qdat, uint32_t npoints,
     char call[13]= {0};
     char loc[7]= {0};
     char pwr[3]= {0};
-    
+
     int32_t delta,verbose=0;
     int32_t writenoise=0,wspr_type=2, ipass;
     int32_t shift1, lagmin, lagmax, lagstep, worth_a_try, not_decoded;
@@ -469,7 +469,7 @@ int32_t wspr_decode(float *idat, float *qdat, uint32_t npoints,
     }
 
     FILE *fp_fftw_wisdom_file, *fhash;
-    
+
     if ((fp_fftw_wisdom_file = fopen("wspr_wisdom.dat", "r"))) {  //Open FFTW wisdom
         fftwf_import_wisdom_from_file(fp_fftw_wisdom_file);
         fclose(fp_fftw_wisdom_file);
