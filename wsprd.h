@@ -46,7 +46,7 @@ struct decoder_options {
 
 
 struct decoder_results {
-    float    freq;
+    double   freq;
     float    sync;
     float    snr;
     float    dt;

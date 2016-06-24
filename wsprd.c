@@ -11,6 +11,10 @@
 
  Copyright 2014-2015, Steven Franke, K9AN
 
+ Minor modifications
+ 
+ Copyright 2016, Guenael Jouchet, VA2GKA
+
  License: GNU GPL v3
 
  This program is free software: you can redistribute it and/or modify
@@ -42,18 +46,23 @@
 #include "wsprd_utils.h"
 #include "wsprsim_utils.h"
 
-#define DT       1.0/375.0
+
 #define DF       375.0/256.0
-#define TWOPIDT  2*M_PI*DT
+#define DT       1.0/375.0
+#define TWOPIDT  2 * M_PI * DT
+#define NIQ      45000
+#define NBITS    81
+#define NSYM     162
+#define NSPERSYM 256
+#define NFILT    256
+#define NSIG     NSYM * NSPERSYM
 
-#define max(x,y) ((x) > (y) ? (x) : (y))
-// Possible PATIENCE options: FFTW_ESTIMATE, FFTW_ESTIMATE_PATIENT,
-// FFTW_MEASURE, FFTW_PATIENT, FFTW_EXHAUSTIVE
+
+/* Possible PATIENCE options: FFTW_ESTIMATE, FFTW_ESTIMATE_PATIENT, FFTW_MEASURE, FFTW_PATIENT, FFTW_EXHAUSTIVE */
 #define PATIENCE FFTW_ESTIMATE
-fftwf_plan PLAN1,PLAN2,PLAN3;
 
 
-unsigned char pr3[162]= {
+unsigned char pr3[NSYM]= {
     1,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,
     0,1,0,1,1,1,1,0,0,0,0,0,0,0,1,0,0,1,0,1,
     0,0,0,0,0,0,1,0,1,1,0,0,1,1,0,1,0,0,0,1,
@@ -65,8 +74,8 @@ unsigned char pr3[162]= {
     0,0
 };
 
-unsigned long nr;
-
+fftwf_plan PLAN1,PLAN2,PLAN3;
+//unsigned long nr;
 int printdata=0;
 
 
@@ -86,14 +95,20 @@ void sync_and_demodulate(float *id, float *qd, long np,
     float f0=0.0,fp,ss;
     int lag;
     static float fplast=-10000.0;
-    float i0[162],q0[162],i1[162],q1[162],i2[162],q2[162],i3[162],q3[162];
+    float i0[NSYM],q0[NSYM],
+          i1[NSYM],q1[NSYM],
+          i2[NSYM],q2[NSYM],
+          i3[NSYM],q3[NSYM];
     float p0,p1,p2,p3,cmet,totp,syncmax,fac;
-    float c0[256],s0[256],c1[256],s1[256],c2[256],s2[256],c3[256],s3[256];
+    float c0[NSPERSYM],s0[NSPERSYM],
+          c1[NSPERSYM],s1[NSPERSYM],
+          c2[NSPERSYM],s2[NSPERSYM],
+          c3[NSPERSYM],s3[NSPERSYM];
     float dphi0, cdphi0, sdphi0,
           dphi1, cdphi1, sdphi1,
           dphi2, cdphi2, sdphi2,
           dphi3, cdphi3, sdphi3;
-    float fsum=0.0, f2sum=0.0, fsymb[162];
+    float fsum=0.0, f2sum=0.0, fsymb[NSYM];
     int best_shift = 0;
     int ifmin=0, ifmax=0;
 
@@ -124,7 +139,7 @@ void sync_and_demodulate(float *id, float *qd, long np,
         for(lag=lagmin; lag<=lagmax; lag=lag+lagstep) {
             ss=0.0;
             totp=0.0;
-            for (int i=0; i<162; i++) {
+            for (int i=0; i<NSYM; i++) {
                 fp = f0 + ((float)*drift1/2.0)*((float)i-81.0)/81.0;
                 if( i==0 || (fp != fplast) ) {  // only calculate sin/cos if necessary
                     dphi0=TWOPIDT*(fp-1.5*DF);
@@ -152,7 +167,7 @@ void sync_and_demodulate(float *id, float *qd, long np,
                     c3[0]=1;
                     s3[0]=0;
 
-                    for (int j=1; j<256; j++) {
+                    for (int j=1; j<NSPERSYM; j++) {
                         c0[j]=c0[j-1]*cdphi0 - s0[j-1]*sdphi0;
                         s0[j]=c0[j-1]*sdphi0 + s0[j-1]*cdphi0;
                         c1[j]=c1[j-1]*cdphi1 - s1[j-1]*sdphi1;
@@ -174,8 +189,8 @@ void sync_and_demodulate(float *id, float *qd, long np,
                 i3[i]=0.0;
                 q3[i]=0.0;
 
-                for (int j=0; j<256; j++) {
-                    int k=lag+i*256+j;
+                for (int j=0; j<NSPERSYM; j++) {
+                    int k=lag+i*NSPERSYM+j;
                     if( (k>0) & (k<np) ) {
                         i0[i]=i0[i] + id[k]*c0[j] + qd[k]*s0[j];
                         q0[i]=q0[i] - id[k]*s0[j] + qd[k]*c0[j];
@@ -226,12 +241,12 @@ void sync_and_demodulate(float *id, float *qd, long np,
 
     if( mode == 2 ) {
         *sync=syncmax;
-        for (int i=0; i<162; i++) {              //Normalize the soft symbols
+        for (int i=0; i<NSYM; i++) {              //Normalize the soft symbols
             fsum=fsum+fsymb[i]/162.0;
             f2sum=f2sum+fsymb[i]*fsymb[i]/162.0;
         }
         fac=sqrtf(f2sum-fsum*fsum);
-        for (int i=0; i<162; i++) {
+        for (int i=0; i<NSYM; i++) {
             fsymb[i]=symfac*fsymb[i]/fac;
             if( fsymb[i] > 127) fsymb[i]=127.0;
             if( fsymb[i] < -128 ) fsymb[i]=-128.0;
@@ -250,10 +265,10 @@ void subtract_signal(float *id, float *qd, long np,
                      float f0, int shift0, float drift0, unsigned char* channel_symbols) {
 
     float i0,q0;
-    float c0[256],s0[256];
+    float c0[NSPERSYM],s0[NSPERSYM];
     float dphi, cdphi, sdphi;
 
-    for (int i=0; i<162; i++) {
+    for (int i=0; i<NSYM; i++) {
         float fp = f0 + ((float)drift0/2.0)*((float)i-81.0)/81.0;
 
         dphi=TWOPIDT*(fp+((float)channel_symbols[i]-1.5)*DF);
@@ -263,7 +278,7 @@ void subtract_signal(float *id, float *qd, long np,
         c0[0]=1;
         s0[0]=0;
 
-        for (int j=1; j<256; j++) {
+        for (int j=1; j<NSPERSYM; j++) {
             c0[j]=c0[j-1]*cdphi - s0[j-1]*sdphi;
             s0[j]=c0[j-1]*sdphi + s0[j-1]*cdphi;
         }
@@ -271,8 +286,8 @@ void subtract_signal(float *id, float *qd, long np,
         i0=0.0;
         q0=0.0;
 
-        for (int j=0; j<256; j++) {
-            int k=shift0+i*256+j;
+        for (int j=0; j<NSPERSYM; j++) {
+            int k=shift0+i*NSPERSYM+j;
             if( (k>0) & (k<np) ) {
                 i0=i0 + id[k]*c0[j] + qd[k]*s0[j];
                 q0=q0 - id[k]*s0[j] + qd[k]*c0[j];
@@ -282,11 +297,11 @@ void subtract_signal(float *id, float *qd, long np,
 
         // subtract the signal here.
 
-        i0=i0/256.0; //will be wrong for partial symbols at the edges...
-        q0=q0/256.0;
+        i0=i0/NSPERSYM; //will be wrong for partial symbols at the edges...
+        q0=q0/NSPERSYM;
 
-        for (int j=0; j<256; j++) {
-            int k=shift0+i*256+j;
+        for (int j=0; j<NSPERSYM; j++) {
+            int k=shift0+i*NSPERSYM+j;
             if( (k>0) & (k<np) ) {
                 id[k]=id[k]- (i0*c0[j] - q0*s0[j]);
                 qd[k]=qd[k]- (q0*c0[j] + i0*s0[j]);
@@ -304,26 +319,9 @@ void subtract_signal2(float *id, float *qd, long np,
                       float f0, int shift0, float drift0, unsigned char* channel_symbols) {
 
     float phi=0, dphi, cs;
-    int nsym=162, nspersym=256,  nfilt=256; //nfilt must be even number.
-    int nsig=nsym*nspersym;
-    int nc2=45000;
-
-    float *refi, *refq, *ci, *cq, *cfi, *cfq;
-
-    refi=malloc(sizeof(float)*nc2);
-    refq=malloc(sizeof(float)*nc2);
-    ci=malloc(sizeof(float)*nc2);
-    cq=malloc(sizeof(float)*nc2);
-    cfi=malloc(sizeof(float)*nc2);
-    cfq=malloc(sizeof(float)*nc2);
-
-    memset(refi,0,sizeof(float)*nc2);
-    memset(refq,0,sizeof(float)*nc2);
-    memset(ci,0,sizeof(float)*nc2);
-    memset(cq,0,sizeof(float)*nc2);
-    memset(cfi,0,sizeof(float)*nc2);
-    memset(cfq,0,sizeof(float)*nc2);
-
+    float refi[NIQ]={0}, refq[NIQ]={0}, 
+          ci[NIQ]={0},   cq[NIQ]={0}, 
+          cfi[NIQ]={0},  cfq[NIQ]={0};
 
     /******************************************************************************
      Measured signal:                    s(t)=a(t)*exp( j*theta(t) )
@@ -335,16 +333,16 @@ void subtract_signal2(float *id, float *qd, long np,
 
     // create reference wspr signal vector, centered on f0.
     //
-    for (int i=0; i<nsym; i++) {
+    for (int i=0; i<NSYM; i++) {
 
         cs=(float)channel_symbols[i];
 
-        dphi=TWOPIDT* ( f0 +
-                        ((float)drift0/2.0)*((float)i-(float)nsym/2.0)/((float)nsym/2.0) +
-                        (cs-1.5)*DF  );
+        dphi=TWOPIDT * ( f0 +
+                         ((float)drift0/2.0)*((float)i-(float)NSYM/2.0)/((float)NSYM/2.0) +
+                         (cs-1.5)*DF  );
 
-        for (int j=0; j<nspersym; j++ ) {
-            int ii=nspersym*i+j;
+        for (int j=0; j<NSPERSYM; j++ ) {
+            int ii=NSPERSYM*i+j;
             refi[ii]=refi[ii]+cosf(phi); //cannot precompute sin/cos because dphi is changing
             refq[ii]=refq[ii]+sinf(phi);
             phi=phi+dphi;
@@ -356,65 +354,56 @@ void subtract_signal2(float *id, float *qd, long np,
     // beginning of first symbol in received data is at shift0.
     // filter transient lasts nfilt samples
     // leave nfilt zeros as a pad at the beginning of the unfiltered reference signal
-    for (int i=0; i<nsym*nspersym; i++) {
+    for (int i=0; i<NSYM*NSPERSYM; i++) {
         int k=shift0+i;
         if( (k>0) & (k<np) ) {
-            ci[i+nfilt] = id[k]*refi[i] + qd[k]*refq[i];
-            cq[i+nfilt] = qd[k]*refi[i] - id[k]*refq[i];
+            ci[i+NFILT] = id[k]*refi[i] + qd[k]*refq[i];
+            cq[i+NFILT] = qd[k]*refi[i] - id[k]*refq[i];
         }
     }
 
     //quick and dirty filter - may want to do better
-    float w[nfilt], norm=0, partialsum[nfilt];
-    memset(partialsum,0,sizeof(float)*nfilt);
-    for (int i=0; i<nfilt; i++) {
-        w[i]=sinf(M_PI*(float)i/(float)(nfilt-1));
+    float w[NFILT]={0}, norm=0, partialsum[NFILT]={0};
+    for (int i=0; i<NFILT; i++) {
+        w[i]=sinf(M_PI*(float)i/(float)(NFILT-1));
         norm=norm+w[i];
     }
-    for (int i=0; i<nfilt; i++) {
+    for (int i=0; i<NFILT; i++) {
         w[i]=w[i]/norm;
     }
-    for (int i=1; i<nfilt; i++) {
+    for (int i=1; i<NFILT; i++) {
         partialsum[i]=partialsum[i-1]+w[i];
     }
 
     // LPF
-    for (int i=nfilt/2; i<45000-nfilt/2; i++) {
+    for (int i=NFILT/2; i<NIQ-NFILT/2; i++) {
         cfi[i]=0.0;
         cfq[i]=0.0;
-        for (int j=0; j<nfilt; j++) {
-            cfi[i]=cfi[i]+w[j]*ci[i-nfilt/2+j];
-            cfq[i]=cfq[i]+w[j]*cq[i-nfilt/2+j];
+        for (int j=0; j<NFILT; j++) {
+            cfi[i]=cfi[i]+w[j]*ci[i-NFILT/2+j];
+            cfq[i]=cfq[i]+w[j]*cq[i-NFILT/2+j];
         }
     }
 
     // subtract c(t)*r(t) here
     // (ci+j*cq)(refi+j*refq)=(ci*refi-cq*refq)+j(ci*refq)+cq*refi)
-    // beginning of first symbol in reference signal is at i=nfilt
+    // beginning of first symbol in reference signal is at i=NFILT
     // beginning of first symbol in received data is at shift0.
-    for (int i=0; i<nsig; i++) {
-        if( i<nfilt/2 ) {        // take care of the end effect (LPF step response) here
-            norm=partialsum[nfilt/2+i];
-        } else if( i>(nsig-1-nfilt/2) ) {
-            norm=partialsum[nfilt/2+nsig-1-i];
+    for (int i=0; i<NSIG; i++) {
+        if( i<NFILT/2 ) {        // take care of the end effect (LPF step response) here
+            norm=partialsum[NFILT/2+i];
+        } else if( i>(NSIG-1-NFILT/2) ) {
+            norm=partialsum[NFILT/2+NSIG-1-i];
         } else {
             norm=1.0;
         }
         int k=shift0+i;
-        int j=i+nfilt;
+        int j=i+NFILT;
         if( (k>0) & (k<np) ) {
             id[k]=id[k] - (cfi[j]*refi[i]-cfq[j]*refq[i])/norm;
             qd[k]=qd[k] - (cfi[j]*refq[i]+cfq[j]*refi[i])/norm;
         }
     }
-
-    free(refi);
-    free(refq);
-    free(ci);
-    free(cq);
-    free(cfi);
-    free(cfq);
-
     return;
 }
 
@@ -425,48 +414,40 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints,
                 struct decoder_options options, struct decoder_results *decodes, int *n_results) {
 
     int i,j,k;
-    unsigned char *symbols, *decdata;
+    //unsigned char *symbols, *decdata;
+    //unsigned int nbits=81;
+    unsigned int metric, maxcycles, cycles, maxnp;
+    unsigned char symbols[NBITS*2]={0};
+    unsigned char decdata[(NBITS+7)/8]={0};
     signed char message[]= {-9,13,-35,123,57,-39,64,0,0,0,0};
-    char *callsign, *call_loc_pow, *call, *loc, *pwr;
+    //char *callsign, *call_loc_pow, *call, *loc, *pwr;
+    char callsign[13]={0};
+    char call_loc_pow[23]={0};
+    char call[13]={0};
+    char loc[7]={0};
+    char pwr[3]={0};
     char *data_dir=NULL;
     char wisdom_fname[200],all_fname[200],spots_fname[200];
     char timer_fname[200],hash_fname[200];
     int delta,verbose=0;
     int writenoise=0,wspr_type=2, ipass;
     int shift1, lagmin, lagmax, lagstep, worth_a_try, not_decoded;
-    unsigned int nbits=81;
-    unsigned int metric, maxcycles, cycles, maxnp;
     float freq0[200],snr0[200],drift0[200],sync0[200];
     int shift0[200];
     float dt_print;
-    float freq_print;
-    float dialfreq= (float)options.freq / 1e6; // check
+    double freq_print;
+    double dialfreq= (double)options.freq / 1e6; // check
     float dialfreq_error=0.0;
     float f1, fstep, sync1=0.0, drift1;
     int noprint=0;
     int uniques=0;
     float fmin=-110.0;
     float fmax=110.0;
-
-    char *hashtab;
-    hashtab=malloc(sizeof(char)*32768*13);
-    memset(hashtab,0,sizeof(char)*32768*13);
-
+    char hashtab[32768*13]={0};
     int nh;
-    symbols=malloc(sizeof(char)*nbits*2);
-    decdata=malloc((nbits+7)/8);
-    callsign=malloc(sizeof(char)*13);
-    call_loc_pow=malloc(sizeof(char)*23);
-    call=malloc(sizeof(char)*13);
-    loc=malloc(sizeof(char)*7);
-    pwr=malloc(sizeof(char)*3);
 
-
-    float allfreqs[100];
-    char allcalls[100][13];
-    memset(allfreqs,0,sizeof(float)*100);
-    memset(allcalls,0,sizeof(char)*100*13);
-
+    float allfreqs[100]={0};
+    char allcalls[100][13]={0};
 
     // Parameters used for performance-tuning:
     maxcycles=10000;                         //Fano timeout limit
@@ -565,7 +546,6 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints,
 
         // Compute average spectrum
         float psavg[512]= {0};
-        //memset(psavg,0.0, sizeof(float)*512);
         for (i=0; i<nffts; i++) {
             for (j=0; j<512; j++) {
                 psavg[j]=psavg[j]+ps[j][i];
@@ -679,13 +659,13 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints,
         float smax,ss,pow,p0,p1,p2,p3;
         for(j=0; j<npk; j++) {                              //For each candidate...
             smax=-1e30;
-            if0=freq0[j]/(DF/2.0)+256;
+            if0=freq0[j]/(DF/2.0)+NSPERSYM;
             for (ifr=if0-1; ifr<=if0+1; ifr++) {                      //Freq search
                 for( k0=-10; k0<22; k0++) {                             //Time search
                     for (idrift=-maxdrift; idrift<=maxdrift; idrift++) {  //Drift search
                         ss=0.0;
                         pow=0.0;
-                        for (k=0; k<162; k++) {                             //Sum over symbols
+                        for (k=0; k<NSYM; k++) {                             //Sum over symbols
                             ifd=ifr+((float)k-81.0)/81.0*( (float)idrift )/DF;
                             kindex=k0+2*k;
                             if( kindex < nffts ) {
@@ -708,7 +688,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints,
                             smax=sync1;
                             shift0[j]=128*(k0+1);
                             drift0[j]=idrift;
-                            freq0[j]=(ifr-256)*(DF/2.0);
+                            freq0[j]=(ifr-NSPERSYM)*(DF/2.0);
                             sync0[j]=sync1;
                         }
                     }
@@ -734,7 +714,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints,
          */
 
         for (j=0; j<npk; j++) {
-            memset(symbols,0,sizeof(char)*nbits*2);
+            memset(symbols,0,sizeof(char)*NBITS*2);
             memset(callsign,0,sizeof(char)*13);
             memset(call_loc_pow,0,sizeof(char)*23);
             memset(call,0,sizeof(char)*13);
@@ -751,7 +731,9 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints,
             lagmin=shift1-144;
             lagmax=shift1+144;
             lagstep=8;
-            if(options.quickmode) lagstep=16;
+
+            if(options.quickmode) 
+                lagstep=16;
 
             sync_and_demodulate(idat, qdat, npoints, symbols, &f1, fstep, &shift1,
                                 lagmin, lagmax, lagstep, &drift1, symfac, &sync1, 0);
@@ -783,7 +765,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints,
                                     &sync1, 2);
 
                 sq=0.0;
-                for(i=0; i<162; i++) {
+                for(i=0; i<NSYM; i++) {
                     y=(double)symbols[i] - 128.0;
                     sq += y*y;
                 }
@@ -792,7 +774,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints,
                 if((sync1 > minsync2) && (rms > minrms)) {
                     deinterleave(symbols);
 
-                    not_decoded = fano(&metric,&cycles,&maxnp,decdata,symbols,nbits,
+                    not_decoded = fano(&metric,&cycles,&maxnp,decdata,symbols,NBITS,
                                        mettab,delta,maxcycles);
                 }
                 idt++;
@@ -814,7 +796,7 @@ int wspr_decode(float *idat, float *qdat, unsigned int npoints,
                 noprint=unpk_(message,hashtab,call_loc_pow,call,loc,pwr,callsign);
 
                 if( options.subtraction && (ipass == 0) && !noprint ) {
-                    unsigned char channel_symbols[162];
+                    unsigned char channel_symbols[NSYM];
 
                     if( get_wspr_channel_symbols(call_loc_pow, hashtab, channel_symbols) ) {
                         subtract_signal2(idat, qdat, npoints, f1, shift1, drift1, channel_symbols);
