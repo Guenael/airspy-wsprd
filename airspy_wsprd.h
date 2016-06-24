@@ -33,9 +33,9 @@
 
 
 #ifndef bool
-	typedef uint32_t bool;
-	#define true  1
-	#define false 0
+typedef uint32_t bool;
+#define true  1
+#define false 0
 #endif
 
 

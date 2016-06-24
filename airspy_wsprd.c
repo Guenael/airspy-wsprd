@@ -85,7 +85,7 @@ int rx_callback(airspy_transfer_t* transfer) {
     uint32_t sigLenght = transfer->sample_count;
 
     static uint32_t decimationIndex=0;
-    
+
     /* CIC buffers */
     static int32_t  Ix1,Ix2,Qx1,Qx2;
     static int32_t  Iy1,It1y,It1z,Qy1,Qt1y,Qt1z;
@@ -112,7 +112,7 @@ int rx_callback(airspy_transfer_t* transfer) {
     float Isum,Qsum;
 
     /* Convert unsigned signal to signed, without bit shift */
-    for(int32_t i=0; i<sigLenght; i++)
+    for(uint32_t i=0; i<sigLenght; i++)
         sigIn[i] = (sigIn[i] & 0xFFF) - 2048;
 
     /* Economic mixer @ fs/4 (upper band)
@@ -162,6 +162,7 @@ int rx_callback(airspy_transfer_t* transfer) {
             continue;
         }
 
+        // FIXME/TODO : some optimisition here
         /* 1st Comb */
         Iy1  = Ix2 - It1z;
         It1z = It1y;
@@ -177,8 +178,8 @@ int rx_callback(airspy_transfer_t* transfer) {
         Qy2  = Qy1 - Qt2z;
         Qt2z = Qt2y;
         Qt2y = Qy1;
-        // FIXME/TODO : some optimisition here
 
+        // FIXME/TODO : could be made with int32_t (8 bits, 20 bits)
         /* FIR compensation filter */
         Isum=0.0, Qsum=0.0;
         for (uint32_t j=0; j<32; j++) {
@@ -212,7 +213,6 @@ int rx_callback(airspy_transfer_t* transfer) {
                 //printf("RX done! [Buffer size: %d]\n", rx_state.iqIndex);
             }
         }
-        
         decimationIndex = 0;
     }
     return 0;
@@ -246,11 +246,13 @@ void postSpots(uint32_t n_results) {
             curl_easy_cleanup(curl);
         }
     }
+    if (n_results == 0)
+        printf("No spot\n");
 }
 
 
 static void *wsprDecoder(void *arg) {
-    /* WSPR decoder use buffers of 45000 samples (fixed value)
+    /* WSPR decoder use buffers of 45000 samples (hardcoded)
        (120 sec max @ 375sps = 45000 samples)
     */
     static float iSamples[45000]={0};
@@ -266,7 +268,7 @@ static void *wsprDecoder(void *arg) {
         if(rx_state.exit_flag)  // Abord case, final sig
             break;
 
-        /* Lock the buffer access and make copy */
+        /* Lock the buffer access and make a local copy */
         pthread_rwlock_wrlock(&dec.rw);
         memcpy(iSamples, rx_state.iSamples, rx_state.iqIndex * sizeof(float));
         memcpy(qSamples, rx_state.qSamples, rx_state.iqIndex * sizeof(float));
@@ -278,6 +280,15 @@ static void *wsprDecoder(void *arg) {
         */
         memcpy(dec_options.date, rx_options.date, sizeof(rx_options.date));
         memcpy(dec_options.uttime, rx_options.uttime, sizeof(rx_options.uttime));
+        
+        /* DEBUG -- Save samples
+        printf("Writing file\n");
+        FILE* fd = NULL;
+        fd = fopen("samples.bin", "wb");
+        int r=fwrite(rx_state.iSamples, sizeof(float), samples_len, fd);
+        printf("%d samples written file\n", r);
+        fclose(fd);
+        */
 
         /* Search & decode the signal */
         wspr_decode(iSamples, qSamples, samples_len, dec_options, dec_results, &n_results);
@@ -366,8 +377,8 @@ void initrx_options() {
     rx_options.vgaGain = 5;    // DEFAULT_VGA_IF_GAIN
     rx_options.bias = 0;       // No bias
     rx_options.shift = 0;
-    rx_options.rate = 2500000; 
-    rx_options.serialnumber = 0;  
+    rx_options.rate = 2500000;
+    rx_options.serialnumber = 0;
     rx_options.packing = 0;
 }
 
@@ -473,7 +484,7 @@ int main(int argc, char** argv) {
             if (rx_options.packing < 0) rx_options.packing = 0;
             if (rx_options.packing > 1) rx_options.packing = 1;
             break;
-        case 'H': // Decoder option, use a hastable 
+        case 'H': // Decoder option, use a hastable
             dec_options.usehashtable = 0;
             break;
         case 'Q': // Decoder option, faster
@@ -624,7 +635,7 @@ int main(int argc, char** argv) {
     time_t rawtime;
     time ( &rawtime );
     struct tm *gtm = gmtime(&rawtime);
-    printf("Starting airspy-wsprd (%04d-%02d-%02d, %02d:%02dz) -- Version 0.1\n",
+    printf("\nStarting airspy-wsprd (%04d-%02d-%02d, %02d:%02dz) -- Version 0.2\n",
            gtm->tm_year + 1900, gtm->tm_mon + 1, gtm->tm_mday, gtm->tm_hour, gtm->tm_min);
     printf("  Callsign     : %s\n", dec_options.rcall);
     printf("  Locator      : %s\n", dec_options.rloc);
@@ -639,6 +650,14 @@ int main(int argc, char** argv) {
     printf("  Bits packing : %s\n", rx_options.packing ? "yes" : "no");
     printf("  S/N          : 0x%08X%08X\n", readSerial.serial_no[2], readSerial.serial_no[3]);
 
+    /* Time alignment stuff */
+    struct timeval lTime;
+    gettimeofday(&lTime, NULL);
+    uint32_t sec   = lTime.tv_sec % 120;
+    uint32_t usec  = sec * 1000000 + lTime.tv_usec;
+    uint32_t uwait = 120000000 - usec;
+    printf("Wait for time sync (start in %d sec)\n\n", uwait/1000000);
+
     /* Create a thread and stuff for separate decoding
        Info : https://computing.llnl.gov/tutorials/pthreads/
     */
@@ -649,16 +668,12 @@ int main(int argc, char** argv) {
 
     /* Main loop : Wait, read, decode */
     while (!rx_state.exit_flag) {
-        /* Time Sync on 2 mins */
-        struct timeval lTime;
+        /* Wait for time Sync on 2 mins */
         gettimeofday(&lTime, NULL);
-
-        uint32_t sec   = lTime.tv_sec % 120;
-        uint32_t usec  = sec * 1000000 + lTime.tv_usec;
-        uint32_t uwait = 120000000 - usec;
-        printf("Wait for time sync (start in %d sec)\n", uwait/1000000);
+        sec   = lTime.tv_sec % 120;
+        usec  = sec * 1000000 + lTime.tv_usec;
+        uwait = 120000000 - usec + 10000;  // Adding 10ms, to be sure to reach this next minute
         usleep(uwait);
-        usleep(10000); // Adding 10ms, to be sure to reach this next minute
         //printf("SYNC! RX started\n");
 
         /* Use the Store the date at the begin of the frame */
@@ -670,10 +685,10 @@ int main(int argc, char** argv) {
         /* Start to store the samples */
         initSampleStorage();
 
-        while( (airspy_is_streaming(device) == AIRSPY_TRUE) && 
-               (rx_state.exit_flag == false) && 
-               (rx_state.iqIndex < (SIGNAL_LENGHT * SIGNAL_SAMPLE_RATE) ) ) {
-            sleep(1);
+        while( (airspy_is_streaming(device) == AIRSPY_TRUE) &&
+                (rx_state.exit_flag == false) &&
+                (rx_state.iqIndex < (SIGNAL_LENGHT * SIGNAL_SAMPLE_RATE) ) ) {
+            usleep(250000);
         }
     }
 
